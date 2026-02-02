@@ -6,7 +6,13 @@
   let files = $state<{ id?: number; name: string; url: string }[]>([]);
   let searchQuery = $state(""); 
   let isDragging = $state(false);
+  let isExporting = $state(false);
+  let exportProgress = $state(0);
+  let showSuccess = $state(false); // New: Success state toggle
   let fileInput: HTMLInputElement;
+
+  let draggedIndex = $state<number | null>(null);
+  let dragOverIndex = $state<number | null>(null);
 
   let filteredFiles = $derived(
     files.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -37,6 +43,29 @@
     }
   }
 
+  async function handleDrop(targetIndex: number) {
+    if (draggedIndex === null || draggedIndex === targetIndex) {
+      draggedIndex = null;
+      dragOverIndex = null;
+      return;
+    }
+
+    const updatedFiles = [...files];
+    const [movedItem] = updatedFiles.splice(draggedIndex, 1);
+    updatedFiles.splice(targetIndex, 0, movedItem);
+    files = updatedFiles;
+
+    draggedIndex = null;
+    dragOverIndex = null;
+
+    const updates = files.map((f, index) => ({
+      id: f.id,
+      file_name: f.name,
+      sort_order: index
+    }));
+    await supabase.from('document_queue').upsert(updates);
+  }
+
   async function removeFile(id: number | undefined, index: number) {
     if (id) await supabase.from('document_queue').delete().eq('id', id);
     URL.revokeObjectURL(files[index].url);
@@ -55,25 +84,28 @@
   }
 
   async function handleExport() {
-    if (files.length === 0) return;
+    if (files.length === 0 || isExporting) return;
     
     try {
-      console.log("System: Initializing PDF Stitching Engine...");
+      isExporting = true;
+      showSuccess = false;
+      exportProgress = 0;
+      
       const mergedPdf = await PDFDocument.create();
 
-      for (const file of files) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
         const response = await fetch(file.url);
         const pdfBytes = await response.arrayBuffer();
         
         const pdf = await PDFDocument.load(pdfBytes);
         const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
         copiedPages.forEach((page) => mergedPdf.addPage(page));
+        
+        exportProgress = Math.round(((i + 1) / files.length) * 100);
       }
 
       const mergedPdfBytes = await mergedPdf.save();
-      // FIXED: Added .buffer to satisfy TypeScript ArrayBufferView requirement
-      // Casting to 'any' is the quickest way to bypass this specific 
-      // SharedArrayBuffer vs ArrayBuffer conflict in the Blob constructor
       const blob = new Blob([mergedPdfBytes as any], { type: 'application/pdf' });
       const exportUrl = URL.createObjectURL(blob);
 
@@ -82,18 +114,57 @@
       link.download = `ArchiveStream_Combined_${Date.now()}.pdf`;
       link.click();
       
-      console.log("System: Export Complete.");
+      // Trigger Success UI
+      showSuccess = true;
+      
+      // Auto-hide after 2.5 seconds
+      setTimeout(() => {
+        isExporting = false;
+        showSuccess = false;
+        exportProgress = 0;
+      }, 2500);
+
     } catch (err) {
       console.error("Export Failed:", err);
-      alert("Error combining documents. Check console for details.");
+      alert("Error combining documents.");
+      isExporting = false;
     }
   }
 </script>
 
+{#if isExporting}
+<div class="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center transition-all duration-500">
+    <div class="w-full max-w-sm px-8 text-center">
+        
+        {#if !showSuccess}
+            <div class="relative mb-8 flex justify-center">
+                <div class="w-24 h-24 border-[3px] border-blue-500/10 border-t-blue-500 rounded-full animate-spin"></div>
+                <div class="absolute inset-0 flex items-center justify-center">
+                    <span class="text-sm font-mono font-bold text-blue-400">{exportProgress}%</span>
+                </div>
+            </div>
+            <h2 class="text-lg font-black tracking-[0.2em] text-white uppercase mb-2">Splicing Data</h2>
+            <div class="w-full h-1 bg-zinc-900 rounded-full overflow-hidden mb-4">
+                <div class="h-full bg-blue-500 transition-all duration-300 shadow-[0_0_15px_#3b82f6]" style="width: {exportProgress}%"></div>
+            </div>
+        {:else}
+            <div class="mb-8 flex justify-center animate-bounce">
+                <div class="w-24 h-24 bg-green-500/20 border-2 border-green-500 rounded-full flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                    </svg>
+                </div>
+            </div>
+            <h2 class="text-lg font-black tracking-[0.2em] text-green-500 uppercase mb-2">Stream Compiled</h2>
+            <p class="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">Download Initiated • Archive Validated</p>
+        {/if}
+    </div>
+</div>
+{/if}
+
 <input bind:this={fileInput} type="file" multiple accept="application/pdf" class="hidden" onchange={onFileSelect} />
 
 <div class="flex h-screen w-full bg-zinc-950 text-zinc-200 font-sans overflow-hidden">
-  
   <aside class="w-80 border-r border-zinc-800 bg-zinc-900/50 flex flex-col">
     <div class="p-6 border-b border-zinc-800">
       <h1 class="text-xl font-bold tracking-tighter text-blue-500 italic">ARCHIVE<span class="text-white">STREAM</span></h1>
@@ -125,15 +196,24 @@
         <button onclick={clearQueue} class="text-[10px] text-zinc-600 hover:text-red-400 transition-colors uppercase">Wipe All</button>
       </div>
       
-      {#each filteredFiles as file, i}
-        <div class="group flex items-center gap-3 p-3 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-blue-600/50 transition-all">
-          <span class="text-[10px] font-mono text-zinc-600">{i + 1}</span>
+      {#each filteredFiles as file, i (file.id)}
+        <div 
+          draggable="true"
+          ondragstart={() => draggedIndex = i}
+          ondragover={(e) => { e.preventDefault(); dragOverIndex = i; }}
+          ondragleave={() => dragOverIndex = null}
+          ondrop={() => handleDrop(i)}
+          class="group flex items-center gap-3 p-3 rounded-lg bg-zinc-900 border transition-all cursor-grab active:cursor-grabbing
+                 {draggedIndex === i ? 'opacity-20' : 'opacity-100'}
+                 {dragOverIndex === i ? 'border-blue-500 bg-zinc-800 scale-[1.02]' : 'border-zinc-800 hover:border-blue-600/50'}"
+        >
+          <span class="text-[10px] font-mono text-zinc-600 group-hover:text-blue-400">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16" />
+            </svg>
+          </span>
           <p class="text-xs truncate flex-1 font-medium">{file.name}</p>
-          <button 
-            onclick={() => removeFile(file.id, i)}
-            aria-label="Remove document"
-            class="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-500 transition-all"
-          >
+          <button onclick={() => removeFile(file.id, i)} class="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-500 transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
@@ -143,10 +223,7 @@
     </div>
 
     <div class="p-4 bg-zinc-950 border-t border-zinc-800">
-        <button 
-            onclick={() => fileInput.click()}
-            class="w-full py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-[10px] uppercase tracking-widest font-bold transition-all"
-        >
+        <button onclick={() => fileInput.click()} class="w-full py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-[10px] uppercase tracking-widest font-bold transition-all">
             + Add Document
         </button>
     </div>
@@ -160,22 +237,22 @@
   >
     {#if files.length === 0}
       <div class="flex-1 flex flex-col items-center justify-center">
-        <button onclick={() => fileInput.click()} class="group flex flex-col items-center" aria-label="Upload PDFs">
+        <button onclick={() => fileInput.click()} class="group flex flex-col items-center">
           <div class="w-20 h-20 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800 group-hover:border-blue-500 transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-zinc-600 group-hover:text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
           </div>
-          <p class="mt-4 text-sm text-zinc-500 font-medium tracking-tight">DROP PDFS TO INITIALIZE STREAM</p>
+          <p class="mt-4 text-sm text-zinc-500 font-medium tracking-tight uppercase">Drop PDFs to initialize</p>
         </button>
       </div>
     {:else}
       <div class="flex-1 overflow-y-auto p-12 space-y-32 scroll-smooth custom-scrollbar">
-        {#each files as file}
+        {#each files as file (file.url)}
           <div class="max-w-5xl mx-auto">
             <div class="flex items-center gap-4 mb-6 opacity-40">
               <span class="text-[10px] font-mono text-blue-400 uppercase tracking-[0.3em]">{file.name}</span>
-              <div class="h-px flex-1 bg-linear-to-r from-blue-500/50 to-transparent"></div>
+              <div class="h-px flex-1 bg-gradient-to-r from-blue-500/50 to-transparent"></div>
             </div>
             <div class="bg-zinc-900 rounded-xl shadow-2xl border border-zinc-800 overflow-hidden">
                 <iframe src={file.url} title={file.name} class="w-full h-[85vh] bg-zinc-800"></iframe>
@@ -184,29 +261,13 @@
         {/each}
       </div>
 
-      <div class="absolute bottom-10 right-10 flex flex-col items-end gap-3">
-        <div class="bg-zinc-900 border border-zinc-800 p-3 rounded-lg shadow-2xl animate-in fade-in slide-in-from-bottom-4">
-            <p class="text-[10px] text-zinc-500 uppercase font-mono mb-2">Stream Configuration</p>
-            <div class="flex gap-4">
-                <div class="text-center">
-                    <p class="text-lg font-bold text-white leading-none">{files.length}</p>
-                    <p class="text-[8px] text-zinc-600 uppercase">Files</p>
-                </div>
-                <div class="w-px bg-zinc-800 h-6 self-center"></div>
-                <div class="text-center">
-                    <p class="text-lg font-bold text-white leading-none">PDF</p>
-                    <p class="text-[8px] text-zinc-600 uppercase">Format</p>
-                </div>
-            </div>
-        </div>
+      <div class="absolute bottom-10 right-10">
         <button 
             onclick={handleExport}
-            class="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-2xl font-black text-xs tracking-widest uppercase shadow-[0_0_40px_rgba(37,99,235,0.2)] transition-all hover:scale-105 active:scale-95 flex items-center gap-3"
+            disabled={isExporting}
+            class="bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 text-white px-8 py-4 rounded-2xl font-black text-xs tracking-widest uppercase shadow-[0_0_40px_rgba(37,99,235,0.2)] transition-all hover:scale-105"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
-          </svg>
-          Combine & Export Stream
+          {isExporting ? 'Processing...' : 'Export Stream'}
         </button>
       </div>
     {/if}
