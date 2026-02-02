@@ -1,42 +1,17 @@
-# sv
+# ⚡ ARCHIVESTREAM
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+**ArchiveStream** is a privacy-first PDF workstation for high-speed document sequencing. It processes files entirely client-side, ensuring sensitive data never leaves your browser. Featuring a high-fidelity "Live Stream" UI, it offers secure, serverless merging and real-time previews in one seamless workstation.
 
-## Creating a project
+---
 
-If you're seeing this, you've probably already done this step. Congrats!
+### 🛠 The Stack
+* **Svelte 5** – Reactive state management via `$state` and `$derived`.
+* **PDF-Lib** – Client-side binary PDF manipulation.
+* **Tailwind CSS** – High-fidelity, dark-grid "Workstation" UI.
+* **Supabase** – Persistent queue synchronization and metadata storage.
 
-```sh
-# create a new project
-npx sv create my-app
-```
-
-To recreate this project with the same configuration:
-
-```sh
-# recreate this project
-npx sv create --template minimal --types ts --add prettier tailwindcss="plugins:typography" --install npm archivestream
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+### ✨ Key Features
+* **Zero-Server Processing:** 100% local. Your documents are never uploaded to a cloud.
+* **Live Stream UI:** Drag, drop, and reorder files in a real-time vertical queue.
+* **Instant Preview:** High-density document rendering within a unified workspace.
+* **Splicing Engine:** Real-time progress tracking with automated export sequences.
