@@ -1,13 +1,13 @@
 <script lang="ts">
   import { supabase } from '$lib/supabaseClient';
   import { onMount } from 'svelte';
+  import { PDFDocument } from 'pdf-lib'; 
 
   let files = $state<{ id?: number; name: string; url: string }[]>([]);
-  let searchQuery = $state(""); // Search state
+  let searchQuery = $state(""); 
   let isDragging = $state(false);
   let fileInput: HTMLInputElement;
 
-  // Filtered list based on search query
   let filteredFiles = $derived(
     files.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
   );
@@ -54,9 +54,39 @@
     if (target.files) handleFiles(Array.from(target.files));
   }
 
-  function handleExport() {
-    alert(`System: Preparing to stitch ${files.length} documents into a single stream...`);
-    // This is where we would trigger a PDF merger library later
+  async function handleExport() {
+    if (files.length === 0) return;
+    
+    try {
+      console.log("System: Initializing PDF Stitching Engine...");
+      const mergedPdf = await PDFDocument.create();
+
+      for (const file of files) {
+        const response = await fetch(file.url);
+        const pdfBytes = await response.arrayBuffer();
+        
+        const pdf = await PDFDocument.load(pdfBytes);
+        const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+        copiedPages.forEach((page) => mergedPdf.addPage(page));
+      }
+
+      const mergedPdfBytes = await mergedPdf.save();
+      // FIXED: Added .buffer to satisfy TypeScript ArrayBufferView requirement
+      // Casting to 'any' is the quickest way to bypass this specific 
+      // SharedArrayBuffer vs ArrayBuffer conflict in the Blob constructor
+      const blob = new Blob([mergedPdfBytes as any], { type: 'application/pdf' });
+      const exportUrl = URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = exportUrl;
+      link.download = `ArchiveStream_Combined_${Date.now()}.pdf`;
+      link.click();
+      
+      console.log("System: Export Complete.");
+    } catch (err) {
+      console.error("Export Failed:", err);
+      alert("Error combining documents. Check console for details.");
+    }
   }
 </script>
 
@@ -101,6 +131,7 @@
           <p class="text-xs truncate flex-1 font-medium">{file.name}</p>
           <button 
             onclick={() => removeFile(file.id, i)}
+            aria-label="Remove document"
             class="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-500 transition-all"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -129,7 +160,7 @@
   >
     {#if files.length === 0}
       <div class="flex-1 flex flex-col items-center justify-center">
-        <button onclick={() => fileInput.click()} class="group flex flex-col items-center">
+        <button onclick={() => fileInput.click()} class="group flex flex-col items-center" aria-label="Upload PDFs">
           <div class="w-20 h-20 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800 group-hover:border-blue-500 transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-zinc-600 group-hover:text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
@@ -144,7 +175,7 @@
           <div class="max-w-5xl mx-auto">
             <div class="flex items-center gap-4 mb-6 opacity-40">
               <span class="text-[10px] font-mono text-blue-400 uppercase tracking-[0.3em]">{file.name}</span>
-              <div class="h-[1px] flex-1 bg-gradient-to-r from-blue-500/50 to-transparent"></div>
+              <div class="h-px flex-1 bg-linear-to-r from-blue-500/50 to-transparent"></div>
             </div>
             <div class="bg-zinc-900 rounded-xl shadow-2xl border border-zinc-800 overflow-hidden">
                 <iframe src={file.url} title={file.name} class="w-full h-[85vh] bg-zinc-800"></iframe>
@@ -161,7 +192,7 @@
                     <p class="text-lg font-bold text-white leading-none">{files.length}</p>
                     <p class="text-[8px] text-zinc-600 uppercase">Files</p>
                 </div>
-                <div class="w-[1px] bg-zinc-800 h-6 self-center"></div>
+                <div class="w-px bg-zinc-800 h-6 self-center"></div>
                 <div class="text-center">
                     <p class="text-lg font-bold text-white leading-none">PDF</p>
                     <p class="text-[8px] text-zinc-600 uppercase">Format</p>
