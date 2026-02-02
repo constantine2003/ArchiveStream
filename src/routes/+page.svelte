@@ -199,6 +199,7 @@
       {#each filteredFiles as file, i (file.id)}
         <div 
           draggable="true"
+          role="listitem"
           ondragstart={() => draggedIndex = i}
           ondragover={(e) => { e.preventDefault(); dragOverIndex = i; }}
           ondragleave={() => dragOverIndex = null}
@@ -213,7 +214,7 @@
             </svg>
           </span>
           <p class="text-xs truncate flex-1 font-medium">{file.name}</p>
-          <button onclick={() => removeFile(file.id, i)} class="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-500 transition-all">
+          <button onclick={() => removeFile(file.id, i)} aria-label="Remove file" class="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-500 transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
@@ -252,7 +253,7 @@
           <div class="max-w-5xl mx-auto">
             <div class="flex items-center gap-4 mb-6 opacity-40">
               <span class="text-[10px] font-mono text-blue-400 uppercase tracking-[0.3em]">{file.name}</span>
-              <div class="h-px flex-1 bg-gradient-to-r from-blue-500/50 to-transparent"></div>
+              <div class="h-px flex-1 bg-linear-to-r from-blue-500/50 to-transparent"></div>
             </div>
             <div class="bg-zinc-900 rounded-xl shadow-2xl border border-zinc-800 overflow-hidden">
                 <iframe src={file.url} title={file.name} class="w-full h-[85vh] bg-zinc-800"></iframe>
