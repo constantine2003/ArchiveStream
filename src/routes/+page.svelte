@@ -158,7 +158,14 @@
 
   <!-- Mobile sidebar overlay -->
   {#if sidebarOpen}
-    <div class="fixed inset-0 z-40 bg-black/40 md:hidden" onclick={() => sidebarOpen = false}></div>
+    <div
+      class="fixed inset-0 z-40 bg-black/40 md:hidden"
+      role="button"
+      tabindex="0"
+      aria-label="Close sidebar overlay"
+      onclick={() => sidebarOpen = false}
+      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { sidebarOpen = false; } }}
+    ></div>
   {/if}
 
   <aside class="fixed md:static top-0 left-0 h-full w-72 max-w-full border-r {isDark ? 'border-stone-800 bg-stone-950' : 'border-stone-200 bg-white'} flex flex-col transition-all duration-500 shadow-xl z-50 md:z-20
@@ -173,7 +180,7 @@
         <span class="w-1.5 h-1.5 rounded-full {files.length > 0 ? 'bg-amber-500 animate-pulse' : 'bg-stone-400'}"></span>
       </div>
       <div class="flex gap-2 items-center">
-        <button onclick={() => isDark = !isDark} class="p-2 rounded-lg hover:bg-stone-500/10 transition-colors">
+        <button onclick={() => isDark = !isDark} class="p-2 rounded-lg hover:bg-stone-500/10 transition-colors" aria-label="Toggle dark mode">
           {#if isDark}
             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-amber-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
           {:else}
@@ -239,7 +246,7 @@
         <div class="pt-8 pb-4">
           <div class="flex justify-between items-center px-2 mb-4">
             <p class="text-[10px] font-bold text-stone-500 uppercase tracking-widest">Recent Exports</p>
-            <button onclick={() => exportHistory = []} class="text-[10px] text-stone-500 hover:text-red-500 transition-colors uppercase font-bold">Clear</button>
+            <button onclick={() => exportHistory = []} class="text-[10px] text-stone-500 hover:text-red-500 transition-colors uppercase font-bold" aria-label="Clear export history">Clear</button>
           </div>
 
           {#each exportHistory as item}
@@ -248,7 +255,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
               </div>
               <div class="flex-1 min-w-0">
-                <a href={item.url} download={item.name} class="text-[10px] block truncate font-medium {isDark ? 'text-stone-400 group-hover:text-stone-200' : 'text-stone-600 group-hover:text-stone-900'} transition-colors">
+                <a href={item.url} download={item.name} class="text-[10px] block truncate font-medium {isDark ? 'text-stone-400 group-hover:text-stone-200' : 'text-stone-600 group-hover:text-stone-900'} transition-colors" aria-label={`Download ${item.name}`}>
                   {item.name}
                 </a>
                 <p class="text-[8px] text-stone-500 uppercase tracking-tighter">{item.date}</p>
@@ -340,34 +347,9 @@
       padding-left: 0;
       padding-right: 0;
     }
-    .max-w-4xl, .max-w-full {
+    .max-w-full {
       max-width: 100vw !important;
     }
-    .rounded-2xl, .rounded-xl {
-      border-radius: 0.75rem !important;
-    }
-    .p-8, .pt-12, .pb-32 {
-      padding: 1rem !important;
-    }
-    .space-y-24, .space-y-12 {
-      gap: 1.5rem !important;
-    }
-    .h-16, .w-16 {
-      height: 2.5rem !important;
-      width: 2.5rem !important;
-    }
       /* Escape Tailwind utility classes for custom CSS */
-      .h-\[85vh\], .h-\[60vw\], .max-h-\[60vh\] {
-        height: 40vh !important;
-        max-height: 50vh !important;
-      }
-      .py-5, .py-4 {
-        padding-top: 0.75rem !important;
-        padding-bottom: 0.75rem !important;
-      }
-      .px-12 {
-        padding-left: 1.5rem !important;
-        padding-right: 1.5rem !important;
-      }
   }
 </style>
