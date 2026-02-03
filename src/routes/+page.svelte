@@ -4,30 +4,33 @@
   import { PDFDocument } from 'pdf-lib'; 
 
   let files = $state<{ id?: number; name: string; url: string }[]>([]);
+  let exportHistory = $state<{ name: string; date: string; url: string }[]>([]);
   let searchQuery = $state(""); 
   let isDragging = $state(false);
   let isExporting = $state(false);
   let exportProgress = $state(0);
   let showSuccess = $state(false); 
   let fileInput: HTMLInputElement;
-
-  // DARK MODE STATE - Defaulting to false (Light Mode)
   let isDark = $state(false); 
 
-  // PERSISTENCE: Load theme on mount and save on change
   onMount(async () => {
-    // Load theme preference
+    // Load theme
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'dark') isDark = true;
+
+    // Load History
+    const savedHistory = localStorage.getItem('export_history');
+    if (savedHistory) exportHistory = JSON.parse(savedHistory);
 
     // Supabase cleanup
     await supabase.from('document_queue').delete().neq('id', 0);
     files = [];
   });
 
-  // Automatically save theme changes to localStorage
+  // Persist State
   $effect(() => {
     localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    localStorage.setItem('export_history', JSON.stringify(exportHistory));
   });
 
   let draggedIndex = $state<number | null>(null);
@@ -95,10 +98,20 @@
       const mergedPdfBytes = await mergedPdf.save();
       const blob = new Blob([mergedPdfBytes as any], { type: 'application/pdf' });
       const exportUrl = URL.createObjectURL(blob);
+      const fileName = `ArchiveStream_${Date.now()}.pdf`;
+      
       const link = document.createElement('a');
       link.href = exportUrl;
-      link.download = `ArchiveStream_Combined_${Date.now()}.pdf`;
+      link.download = fileName;
       link.click();
+
+      // Update History
+      exportHistory = [{
+        name: fileName,
+        date: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+        url: exportUrl
+      }, ...exportHistory].slice(0, 5);
+
       showSuccess = true;
       setTimeout(() => { isExporting = false; showSuccess = false; exportProgress = 0; }, 2500);
     } catch (err) {
@@ -141,12 +154,12 @@
 
 <div class="flex h-screen w-full transition-colors duration-500 {isDark ? 'bg-stone-950 text-stone-200' : 'bg-stone-50 text-stone-900'} font-sans overflow-hidden">
   
-  <aside class="w-72 border-r {isDark ? 'border-stone-800 bg-stone-950' : 'border-stone-200 bg-white'} flex flex-col transition-colors duration-500">
+  <aside class="w-80 border-r {isDark ? 'border-stone-800 bg-stone-950' : 'border-stone-200 bg-white'} flex flex-col transition-colors duration-500 shadow-xl z-20">
     <div class="p-8 pb-6 flex justify-between items-start">
       <div>
-        <h1 class="text-2xl font-serif tracking-tight {isDark ? 'text-white' : 'text-black'}">Archive<span class="text-amber-600">.</span></h1>
+        <h1 class="text-2xl font-serif tracking-tight {isDark ? 'text-white' : 'text-black'}">ArchiveStream<span class="text-amber-600">.</span></h1>
         <div class="flex items-center gap-2 mt-2">
-          <span class="w-1.5 h-1.5 rounded-full {files.length > 0 ? 'bg-amber-500' : 'bg-stone-400'}"></span>
+          <span class="w-1.5 h-1.5 rounded-full {files.length > 0 ? 'bg-amber-500 animate-pulse' : 'bg-stone-400'}"></span>
           <p class="text-[9px] uppercase tracking-[0.2em] text-stone-500 font-medium">
             {files.length > 0 ? 'Queue Active' : 'System Idle'}
           </p>
@@ -155,13 +168,9 @@
       
       <button onclick={() => isDark = !isDark} class="p-2 rounded-lg hover:bg-stone-500/10 transition-colors">
         {#if isDark}
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-amber-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-amber-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
         {:else}
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-stone-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-          </svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-stone-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
         {/if}
       </button>
     </div>
@@ -189,20 +198,54 @@
           ondragover={(e) => { e.preventDefault(); dragOverIndex = i; }}
           ondragleave={() => dragOverIndex = null}
           ondrop={() => handleDrop(i)}
-          class="group flex items-center gap-3 p-3 rounded-xl transition-all cursor-grab active:cursor-grabbing
+          class="group flex items-center gap-3 p-3 rounded-xl transition-all cursor-grab active:cursor-grabbing border
                {draggedIndex === i ? 'opacity-30' : 'opacity-100'}
-               {dragOverIndex === i ? 'bg-amber-600/10' : (isDark ? 'hover:bg-stone-900' : 'hover:bg-stone-100')}"
+               {dragOverIndex === i 
+                 ? 'bg-amber-600/10 border-amber-600/30' 
+                 : (isDark 
+                    ? 'bg-transparent border-transparent hover:bg-stone-900 hover:border-stone-800' 
+                    : 'bg-transparent border-transparent hover:bg-white hover:shadow-sm hover:border-stone-200')}"
         >
-          <div class="flex-1 min-w-0">
-            <p class="text-xs truncate font-medium {isDark ? 'text-stone-300 group-hover:text-amber-200' : 'text-stone-700 group-hover:text-black'} transition-colors">{file.name}</p>
-          </div>
-          <button onclick={() => removeFile(file.id, i)} class="opacity-0 group-hover:opacity-100 text-stone-500 hover:text-red-500 transition-all px-1">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          <div class="text-stone-500 opacity-30 group-hover:opacity-100 transition-opacity">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/>
             </svg>
+          </div>
+
+          <div class="flex-1 min-w-0">
+            <p class="text-xs truncate font-medium {isDark ? 'text-stone-300 group-hover:text-amber-200' : 'text-stone-700 group-hover:text-black'} transition-colors">
+              {file.name}
+            </p>
+          </div>
+
+          <button onclick={() => removeFile(file.id, i)} class="opacity-0 group-hover:opacity-100 text-stone-400 hover:text-red-500 transition-all px-1">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
       {/each}
+
+      {#if exportHistory.length > 0}
+        <div class="pt-8 pb-4">
+          <div class="flex justify-between items-center px-2 mb-4">
+            <p class="text-[10px] font-bold text-stone-500 uppercase tracking-widest">Recent Exports</p>
+            <button onclick={() => exportHistory = []} class="text-[10px] text-stone-500 hover:text-red-500 transition-colors uppercase font-bold">Clear</button>
+          </div>
+
+          {#each exportHistory as item}
+            <div class="group flex items-center gap-3 p-3 rounded-xl border border-transparent {isDark ? 'hover:bg-stone-900/50 hover:border-stone-800' : 'hover:bg-stone-100 hover:border-stone-200'} transition-all mb-1">
+              <div class="text-amber-600/40 group-hover:text-amber-600">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              </div>
+              <div class="flex-1 min-w-0">
+                <a href={item.url} download={item.name} class="text-[10px] block truncate font-medium {isDark ? 'text-stone-400 group-hover:text-stone-200' : 'text-stone-600 group-hover:text-stone-900'} transition-colors">
+                  {item.name}
+                </a>
+                <p class="text-[8px] text-stone-500 uppercase tracking-tighter">{item.date}</p>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
     </div>
 
     <div class="p-6">
@@ -221,9 +264,7 @@
     {#if files.length === 0}
       <div class="flex-1 flex flex-col items-center justify-center opacity-30">
         <div class="w-16 h-16 mb-6 border border-dashed {isDark ? 'border-stone-700' : 'border-stone-400'} rounded-full flex items-center justify-center">
-             <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 {isDark ? 'text-stone-400' : 'text-stone-600'}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4" />
-            </svg>
+             <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 {isDark ? 'text-stone-400' : 'text-stone-600'}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4" /></svg>
         </div>
         <p class="text-[10px] {isDark ? 'text-stone-400' : 'text-stone-600'} font-bold tracking-[0.3em] uppercase">Drop Files to Begin</p>
       </div>
