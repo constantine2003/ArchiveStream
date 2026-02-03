@@ -3,7 +3,7 @@
 /* This replaces @tailwind base, components, and utilities in v4 */
 
 html, body {
-  background-color: #09090b; /* Zinc 950 */
+  background-color: #fff; /* White */
   color: #fafafa;
   margin: 0;
   padding: 0;
