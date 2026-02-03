@@ -305,11 +305,11 @@
         {/each}
       </div>
 
-      <div class="fixed md:absolute bottom-4 md:bottom-10 left-1/2 -translate-x-1/2 w-full flex justify-center px-2 z-20">
+      <div class="fixed md:absolute bottom-4 md:bottom-10 left-1/2 -translate-x-1/2 flex justify-center px-2 z-20 w-full">
         <button 
             onclick={handleExport}
             disabled={isExporting}
-            class="w-full max-w-xs md:max-w-none md:px-12 py-4 md:py-5 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-xs md:text-[10px] tracking-[0.3em] uppercase shadow-xl md:shadow-2xl transition-all hover:scale-105 active:scale-95"
+            class="w-full max-w-xs sm:w-64 mx-auto md:w-64 md:max-w-none md:px-12 py-4 md:py-5 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-xs md:text-[10px] tracking-[0.3em] uppercase shadow-xl md:shadow-2xl transition-all hover:scale-105 active:scale-95"
         >
           {isExporting ? 'Processing' : 'Export Collection'}
         </button>
