@@ -4,12 +4,34 @@
   import { PDFDocument } from 'pdf-lib'; 
 
   let files = $state<{ id?: number; name: string; url: string }[]>([]);
+  let exportHistory = $state<{ name: string; date: string; url: string }[]>([]);
   let searchQuery = $state(""); 
   let isDragging = $state(false);
   let isExporting = $state(false);
   let exportProgress = $state(0);
-  let showSuccess = $state(false); // New: Success state toggle
+  let showSuccess = $state(false); 
   let fileInput: HTMLInputElement;
+  let isDark = $state(false); 
+
+  onMount(async () => {
+    // Load theme
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark') isDark = true;
+
+    // Load History
+    const savedHistory = localStorage.getItem('export_history');
+    if (savedHistory) exportHistory = JSON.parse(savedHistory);
+
+    // Supabase cleanup
+    await supabase.from('document_queue').delete().neq('id', 0);
+    files = [];
+  });
+
+  // Persist State
+  $effect(() => {
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    localStorage.setItem('export_history', JSON.stringify(exportHistory));
+  });
 
   let draggedIndex = $state<number | null>(null);
   let dragOverIndex = $state<number | null>(null);
@@ -18,51 +40,27 @@
     files.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  onMount(async () => {
-    await supabase.from('document_queue').delete().neq('id', 0);
-    files = [];
-  });
-
   async function handleFiles(droppedFiles: File[]) {
     const pdfs = droppedFiles.filter(f => f.type === 'application/pdf');
     if (pdfs.length === 0) return;
-
     for (const file of pdfs) {
-      const { data, error } = await supabase
-        .from('document_queue')
-        .insert({ file_name: file.name, sort_order: files.length })
-        .select();
-
+      const { data, error } = await supabase.from('document_queue').insert({ file_name: file.name, sort_order: files.length }).select();
       if (!error && data) {
-        files = [...files, { 
-          id: data[0].id, 
-          name: file.name, 
-          url: URL.createObjectURL(file) 
-        }];
+        files = [...files, { id: data[0].id, name: file.name, url: URL.createObjectURL(file) }];
       }
     }
   }
 
   async function handleDrop(targetIndex: number) {
     if (draggedIndex === null || draggedIndex === targetIndex) {
-      draggedIndex = null;
-      dragOverIndex = null;
-      return;
+      draggedIndex = null; dragOverIndex = null; return;
     }
-
     const updatedFiles = [...files];
     const [movedItem] = updatedFiles.splice(draggedIndex, 1);
     updatedFiles.splice(targetIndex, 0, movedItem);
     files = updatedFiles;
-
-    draggedIndex = null;
-    dragOverIndex = null;
-
-    const updates = files.map((f, index) => ({
-      id: f.id,
-      file_name: f.name,
-      sort_order: index
-    }));
+    draggedIndex = null; dragOverIndex = null;
+    const updates = files.map((f, index) => ({ id: f.id, file_name: f.name, sort_order: index }));
     await supabase.from('document_queue').upsert(updates);
   }
 
@@ -85,45 +83,37 @@
 
   async function handleExport() {
     if (files.length === 0 || isExporting) return;
-    
     try {
-      isExporting = true;
-      showSuccess = false;
-      exportProgress = 0;
-      
+      isExporting = true; showSuccess = false; exportProgress = 0;
       const mergedPdf = await PDFDocument.create();
-
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const response = await fetch(file.url);
         const pdfBytes = await response.arrayBuffer();
-        
         const pdf = await PDFDocument.load(pdfBytes);
         const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
         copiedPages.forEach((page) => mergedPdf.addPage(page));
-        
         exportProgress = Math.round(((i + 1) / files.length) * 100);
       }
-
       const mergedPdfBytes = await mergedPdf.save();
       const blob = new Blob([mergedPdfBytes as any], { type: 'application/pdf' });
       const exportUrl = URL.createObjectURL(blob);
-
+      const fileName = `ArchiveStream_${Date.now()}.pdf`;
+      
       const link = document.createElement('a');
       link.href = exportUrl;
-      link.download = `ArchiveStream_Combined_${Date.now()}.pdf`;
+      link.download = fileName;
       link.click();
-      
-      // Trigger Success UI
-      showSuccess = true;
-      
-      // Auto-hide after 2.5 seconds
-      setTimeout(() => {
-        isExporting = false;
-        showSuccess = false;
-        exportProgress = 0;
-      }, 2500);
 
+      // Update History
+      exportHistory = [{
+        name: fileName,
+        date: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+        url: exportUrl
+      }, ...exportHistory].slice(0, 5);
+
+      showSuccess = true;
+      setTimeout(() => { isExporting = false; showSuccess = false; exportProgress = 0; }, 2500);
     } catch (err) {
       console.error("Export Failed:", err);
       alert("Error combining documents.");
@@ -133,30 +123,28 @@
 </script>
 
 {#if isExporting}
-<div class="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center transition-all duration-500">
+<div class="fixed inset-0 z-50 {isDark ? 'bg-stone-950/90' : 'bg-white/90'} backdrop-blur-md flex flex-col items-center justify-center transition-all duration-500">
     <div class="w-full max-w-sm px-8 text-center">
-        
         {#if !showSuccess}
             <div class="relative mb-8 flex justify-center">
-                <div class="w-24 h-24 border-[3px] border-blue-500/10 border-t-blue-500 rounded-full animate-spin"></div>
+                <div class="w-20 h-20 border-2 border-amber-900/30 border-t-amber-500 rounded-full animate-spin"></div>
                 <div class="absolute inset-0 flex items-center justify-center">
-                    <span class="text-sm font-mono font-bold text-blue-400">{exportProgress}%</span>
+                    <span class="text-xs font-serif italic text-amber-500">{exportProgress}%</span>
                 </div>
             </div>
-            <h2 class="text-lg font-black tracking-[0.2em] text-white uppercase mb-2">Splicing Data</h2>
-            <div class="w-full h-1 bg-zinc-900 rounded-full overflow-hidden mb-4">
-                <div class="h-full bg-blue-500 transition-all duration-300 shadow-[0_0_15px_#3b82f6]" style="width: {exportProgress}%"></div>
+            <h2 class="text-sm font-light tracking-[0.3em] {isDark ? 'text-stone-300' : 'text-stone-600'} uppercase mb-4">Compiling Collection</h2>
+            <div class="w-full h-px {isDark ? 'bg-stone-800' : 'bg-stone-200'} rounded-full overflow-hidden">
+                <div class="h-full bg-amber-600 transition-all duration-300" style="width: {exportProgress}%"></div>
             </div>
         {:else}
-            <div class="mb-8 flex justify-center animate-bounce">
-                <div class="w-24 h-24 bg-green-500/20 border-2 border-green-500 rounded-full flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+            <div class="mb-8 flex justify-center scale-110">
+                <div class="w-20 h-20 bg-emerald-500/10 border border-emerald-500/50 rounded-full flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 13l4 4L19 7" />
                     </svg>
                 </div>
             </div>
-            <h2 class="text-lg font-black tracking-[0.2em] text-green-500 uppercase mb-2">Stream Compiled</h2>
-            <p class="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">Download Initiated • Archive Validated</p>
+            <h2 class="text-sm font-medium tracking-widest text-emerald-500 uppercase">Archive Ready</h2>
         {/if}
     </div>
 </div>
@@ -164,36 +152,42 @@
 
 <input bind:this={fileInput} type="file" multiple accept="application/pdf" class="hidden" onchange={onFileSelect} />
 
-<div class="flex h-screen w-full bg-zinc-950 text-zinc-200 font-sans overflow-hidden">
-  <aside class="w-80 border-r border-zinc-800 bg-zinc-900/50 flex flex-col">
-    <div class="p-6 border-b border-zinc-800">
-      <h1 class="text-xl font-bold tracking-tighter text-blue-500 italic">ARCHIVE<span class="text-white">STREAM</span></h1>
-      <div class="flex items-center gap-2 mt-1">
-        <span class="w-2 h-2 rounded-full {files.length > 0 ? 'bg-green-500 animate-pulse' : 'bg-zinc-600'}"></span>
-        <p class="text-[10px] uppercase tracking-widest text-zinc-500">
-          {files.length > 0 ? 'Active Stream' : 'Ready'}
-        </p>
+<div class="flex h-screen w-full transition-colors duration-500 {isDark ? 'bg-stone-950 text-stone-200' : 'bg-stone-50 text-stone-900'} font-sans overflow-hidden">
+  
+  <aside class="w-80 border-r {isDark ? 'border-stone-800 bg-stone-950' : 'border-stone-200 bg-white'} flex flex-col transition-colors duration-500 shadow-xl z-20">
+    <div class="p-8 pb-6 flex justify-between items-start">
+      <div>
+        <h1 class="text-2xl font-serif tracking-tight {isDark ? 'text-white' : 'text-black'}">ArchiveStream<span class="text-amber-600">.</span></h1>
+        <div class="flex items-center gap-2 mt-2">
+          <span class="w-1.5 h-1.5 rounded-full {files.length > 0 ? 'bg-amber-500 animate-pulse' : 'bg-stone-400'}"></span>
+          <p class="text-[9px] uppercase tracking-[0.2em] text-stone-500 font-medium">
+            {files.length > 0 ? 'Queue Active' : 'System Idle'}
+          </p>
+        </div>
       </div>
+      
+      <button onclick={() => isDark = !isDark} class="p-2 rounded-lg hover:bg-stone-500/10 transition-colors">
+        {#if isDark}
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-amber-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+        {:else}
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-stone-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
+        {/if}
+      </button>
     </div>
 
-    <div class="p-4 border-b border-zinc-800">
-      <div class="relative group">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
-        <input 
-          bind:value={searchQuery}
-          type="text" 
-          placeholder="SEARCH ARCHIVES..." 
-          class="w-full bg-black border border-zinc-800 rounded-md py-2 pl-9 pr-3 text-[10px] font-mono focus:outline-none focus:border-blue-500 transition-colors"
-        />
-      </div>
+    <div class="px-6 mb-6">
+      <input 
+        bind:value={searchQuery}
+        type="text" 
+        placeholder="Filter documents..." 
+        class="w-full {isDark ? 'bg-stone-900 text-white placeholder-stone-500' : 'bg-stone-100 text-stone-900'} border-none rounded-lg py-2.5 px-4 text-xs focus:ring-1 focus:ring-amber-600/50 transition-all"
+      />
     </div>
 
-    <div class="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
+    <div class="flex-1 overflow-y-auto px-4 space-y-1 custom-scrollbar">
       <div class="flex justify-between items-center px-2 mb-4">
-        <p class="text-xs font-semibold text-zinc-500 uppercase tracking-tighter">Live Queue ({filteredFiles.length})</p>
-        <button onclick={clearQueue} class="text-[10px] text-zinc-600 hover:text-red-400 transition-colors uppercase">Wipe All</button>
+        <p class="text-[10px] font-bold text-stone-500 uppercase tracking-widest">Library ({filteredFiles.length})</p>
+        <button onclick={clearQueue} class="text-[10px] text-stone-500 hover:text-amber-600 transition-colors uppercase font-bold">Clear</button>
       </div>
       
       {#each filteredFiles as file, i (file.id)}
@@ -204,71 +198,98 @@
           ondragover={(e) => { e.preventDefault(); dragOverIndex = i; }}
           ondragleave={() => dragOverIndex = null}
           ondrop={() => handleDrop(i)}
-          class="group flex items-center gap-3 p-3 rounded-lg bg-zinc-900 border transition-all cursor-grab active:cursor-grabbing
-                 {draggedIndex === i ? 'opacity-20' : 'opacity-100'}
-                 {dragOverIndex === i ? 'border-blue-500 bg-zinc-800 scale-[1.02]' : 'border-zinc-800 hover:border-blue-600/50'}"
+          class="group flex items-center gap-3 p-3 rounded-xl transition-all cursor-grab active:cursor-grabbing border
+               {draggedIndex === i ? 'opacity-30' : 'opacity-100'}
+               {dragOverIndex === i 
+                 ? 'bg-amber-600/10 border-amber-600/30' 
+                 : (isDark 
+                    ? 'bg-transparent border-transparent hover:bg-stone-900 hover:border-stone-800' 
+                    : 'bg-transparent border-transparent hover:bg-white hover:shadow-sm hover:border-stone-200')}"
         >
-          <span class="text-[10px] font-mono text-zinc-600 group-hover:text-blue-400">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16" />
+          <div class="text-stone-500 opacity-30 group-hover:opacity-100 transition-opacity">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/>
             </svg>
-          </span>
-          <p class="text-xs truncate flex-1 font-medium">{file.name}</p>
-          <button onclick={() => removeFile(file.id, i)} aria-label="Remove file" class="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-500 transition-all">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
+          </div>
+
+          <div class="flex-1 min-w-0">
+            <p class="text-xs truncate font-medium {isDark ? 'text-stone-300 group-hover:text-amber-200' : 'text-stone-700 group-hover:text-black'} transition-colors">
+              {file.name}
+            </p>
+          </div>
+
+          <button onclick={() => removeFile(file.id, i)} class="opacity-0 group-hover:opacity-100 text-stone-400 hover:text-red-500 transition-all px-1">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
       {/each}
+
+      {#if exportHistory.length > 0}
+        <div class="pt-8 pb-4">
+          <div class="flex justify-between items-center px-2 mb-4">
+            <p class="text-[10px] font-bold text-stone-500 uppercase tracking-widest">Recent Exports</p>
+            <button onclick={() => exportHistory = []} class="text-[10px] text-stone-500 hover:text-red-500 transition-colors uppercase font-bold">Clear</button>
+          </div>
+
+          {#each exportHistory as item}
+            <div class="group flex items-center gap-3 p-3 rounded-xl border border-transparent {isDark ? 'hover:bg-stone-900/50 hover:border-stone-800' : 'hover:bg-stone-100 hover:border-stone-200'} transition-all mb-1">
+              <div class="text-amber-600/40 group-hover:text-amber-600">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              </div>
+              <div class="flex-1 min-w-0">
+                <a href={item.url} download={item.name} class="text-[10px] block truncate font-medium {isDark ? 'text-stone-400 group-hover:text-stone-200' : 'text-stone-600 group-hover:text-stone-900'} transition-colors">
+                  {item.name}
+                </a>
+                <p class="text-[8px] text-stone-500 uppercase tracking-tighter">{item.date}</p>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
     </div>
 
-    <div class="p-4 bg-zinc-950 border-t border-zinc-800">
-        <button onclick={() => fileInput.click()} class="w-full py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-[10px] uppercase tracking-widest font-bold transition-all">
-            + Add Document
-        </button>
+    <div class="p-6">
+      <button onclick={() => fileInput.click()} class="w-full py-3 {isDark ? 'bg-stone-900 hover:bg-stone-800 text-stone-200 border-stone-800' : 'bg-white hover:bg-stone-50 text-stone-900 border-stone-200'} rounded-xl text-[10px] uppercase tracking-widest font-bold border transition-all">
+        Import PDF
+      </button>
     </div>
   </aside>
 
   <main 
-    class="flex-1 relative flex flex-col {isDragging ? 'bg-blue-600/10' : 'bg-black'}"
+    class="flex-1 relative flex flex-col transition-colors duration-500 {isDragging ? 'bg-amber-600/5' : (isDark ? 'bg-[#0c0a09]' : 'bg-stone-50')}"
     ondragover={(e) => { e.preventDefault(); isDragging = true; }}
     ondragleave={() => isDragging = false}
     ondrop={(e) => { e.preventDefault(); isDragging = false; if (e.dataTransfer) handleFiles(Array.from(e.dataTransfer.files)); }}
   >
     {#if files.length === 0}
-      <div class="flex-1 flex flex-col items-center justify-center">
-        <button onclick={() => fileInput.click()} class="group flex flex-col items-center">
-          <div class="w-20 h-20 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800 group-hover:border-blue-500 transition-all">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-zinc-600 group-hover:text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-          </div>
-          <p class="mt-4 text-sm text-zinc-500 font-medium tracking-tight uppercase">Drop PDFs to initialize</p>
-        </button>
+      <div class="flex-1 flex flex-col items-center justify-center opacity-30">
+        <div class="w-16 h-16 mb-6 border border-dashed {isDark ? 'border-stone-700' : 'border-stone-400'} rounded-full flex items-center justify-center">
+             <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 {isDark ? 'text-stone-400' : 'text-stone-600'}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4" /></svg>
+        </div>
+        <p class="text-[10px] {isDark ? 'text-stone-400' : 'text-stone-600'} font-bold tracking-[0.3em] uppercase">Drop Files to Begin</p>
       </div>
     {:else}
-      <div class="flex-1 overflow-y-auto p-12 space-y-32 scroll-smooth custom-scrollbar">
+      <div class="flex-1 overflow-y-auto p-12 pb-32 space-y-24 scroll-smooth custom-scrollbar">
         {#each files as file (file.url)}
-          <div class="max-w-5xl mx-auto">
-            <div class="flex items-center gap-4 mb-6 opacity-40">
-              <span class="text-[10px] font-mono text-blue-400 uppercase tracking-[0.3em]">{file.name}</span>
-              <div class="h-px flex-1 bg-linear-to-r from-blue-500/50 to-transparent"></div>
+          <div class="max-w-4xl mx-auto">
+            <div class="flex items-center gap-4 mb-6">
+              <span class="text-[10px] font-bold {isDark ? 'text-stone-500' : 'text-stone-400'} uppercase tracking-[0.2em]">{file.name}</span>
+              <div class="h-px flex-1 {isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
             </div>
-            <div class="bg-zinc-900 rounded-xl shadow-2xl border border-zinc-800 overflow-hidden">
-                <iframe src={file.url} title={file.name} class="w-full h-[85vh] bg-zinc-800"></iframe>
+            <div class="bg-white rounded-2xl shadow-2xl overflow-hidden border {isDark ? 'border-stone-800' : 'border-stone-200'}">
+                <iframe src={file.url} title={file.name} class="w-full h-[85vh] bg-white"></iframe>
             </div>
           </div>
         {/each}
       </div>
 
-      <div class="absolute bottom-10 right-10">
+      <div class="absolute bottom-10 left-1/2 -translate-x-1/2">
         <button 
             onclick={handleExport}
             disabled={isExporting}
-            class="bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 text-white px-8 py-4 rounded-2xl font-black text-xs tracking-widest uppercase shadow-[0_0_40px_rgba(37,99,235,0.2)] transition-all hover:scale-105"
+            class="bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white px-12 py-5 rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all hover:scale-105 active:scale-95"
         >
-          {isExporting ? 'Processing...' : 'Export Stream'}
+          {isExporting ? 'Processing' : 'Export Collection'}
         </button>
       </div>
     {/if}
@@ -276,7 +297,10 @@
 </div>
 
 <style>
+  :global(body) { font-family: 'Inter', sans-serif; }
+  .font-serif { font-family: 'Playfair Display', serif; }
+
   .custom-scrollbar::-webkit-scrollbar { width: 4px; }
   .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-  .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 10px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: #44403c; border-radius: 10px; }
 </style>
