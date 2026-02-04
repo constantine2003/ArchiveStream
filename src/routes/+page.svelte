@@ -4,7 +4,7 @@
   import { PDFDocument } from 'pdf-lib';
 
   // --- State Management ---
-  let files = $state<{ id?: number; name: string; url: string; isEditing?: boolean }[]>([]);
+  let files = $state<{ id?: number; name: string; url: string; isEditing?: boolean; pageSelection?: string; selectionType?: 'all' | 'custom'; pageCount?: number }[]>([]);
   let activeFileId = $state<string | null>(null);
     /**
      * Synchronizes the sidebar selection with the canvas scroll position.
@@ -90,14 +90,46 @@
         .select();
 
       if (!error && data) {
+        // Get page count for the PDF
+        let pageCount = 1;
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const pdfDoc = await PDFDocument.load(arrayBuffer);
+          pageCount = pdfDoc.getPageCount();
+        } catch (e) {
+          pageCount = 1;
+        }
         files = [...files, { 
           id: data[0].id, 
           name: file.name, 
           url: URL.createObjectURL(file),
-          isEditing: false
+          isEditing: false,
+          pageSelection: 'all',
+          selectionType: 'all',
+          pageCount
         }];
       }
     }
+  }
+  /**
+   * Converts strings like "1, 3-5" into [1, 3, 4, 5]
+   */
+  function parsePageRanges(input: string, maxPages: number): number[] {
+    if (!input || input.toLowerCase() === 'all') return Array.from({length: maxPages}, (_, i) => i + 1);
+    const pages = new Set<number>();
+    const parts = input.split(',');
+    parts.forEach(part => {
+      const range = part.trim().split('-');
+      if (range.length === 2) {
+        const start = Math.max(1, parseInt(range[0]));
+        const end = Math.min(maxPages, parseInt(range[1]));
+        for (let i = start; i <= end; i++) pages.add(i);
+      } else {
+        const page = parseInt(part.trim());
+        if (page > 0 && page <= maxPages) pages.add(page);
+      }
+    });
+    return Array.from(pages).sort((a, b) => a - b);
   }
 
   function openContextMenu(e: MouseEvent, index: number) {
@@ -439,6 +471,40 @@
                 id={file.id ? String(file.id) : ''} 
                 class="group transition-all duration-300 {activeFileId === String(file.id) ? (isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
               >
+                <div class="flex flex-wrap items-center justify-between gap-4 mb-4 px-4 py-3 bg-stone-50 {isDark ? 'bg-stone-900/50' : 'bg-stone-50'} rounded-lg border {isDark ? 'border-stone-800' : 'border-stone-200'}">
+                  <div class="flex items-center gap-3">
+                    <span class="text-[10px] font-black uppercase tracking-tighter {isDark ? 'text-stone-400' : 'text-stone-500'}">Scope:</span>
+                    <div class="flex bg-stone-200 {isDark ? 'bg-stone-800' : 'bg-stone-200'} p-1 rounded-md">
+                      <button 
+                        onclick={() => { file.selectionType = 'all'; file.pageSelection = 'all'; }}
+                        class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType !== 'custom' ? (isDark ? 'bg-stone-700 text-white' : 'bg-white text-stone-900 shadow-sm') : 'text-stone-500'}">
+                        ALL
+                      </button>
+                      <button 
+                        onclick={() => { file.selectionType = 'custom'; if (!file.pageSelection || file.pageSelection === 'all') file.pageSelection = ''; }}
+                        class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType === 'custom' ? (isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white shadow-sm') : 'text-stone-500'}">
+                        CUSTOM
+                      </button>
+                    </div>
+                  </div>
+
+                  {#if file.selectionType === 'custom'}
+                    <div class="flex-1 max-w-xs relative">
+                      <input 
+                        type="text" 
+                        placeholder="e.g. 1, 3-5, 10" 
+                        bind:value={file.pageSelection}
+                        class="w-full pl-3 pr-10 py-1.5 text-xs font-mono bg-transparent border-b-2 {isDark ? 'border-stone-700 focus:border-amber-500' : 'border-stone-300 focus:border-stone-900'} outline-none transition-colors"
+                      />
+                      <span class="absolute right-0 top-1.5 text-[9px] font-bold {isDark ? 'text-stone-600' : 'text-stone-400'}">
+                        PG. RANGE
+                      </span>
+                    </div>
+                  {/if}
+                  <div class="text-[10px] font-bold {isDark ? 'text-amber-500' : 'text-stone-400'}">
+                    {file.selectionType === 'custom' ? 'PARTIAL EXPORT' : 'FULL DOCUMENT'}
+                  </div>
+                </div>
                 <div class="flex items-center gap-4 mb-4 px-2 md:px-0">
                   <span class="text-[10px] font-bold {isDark ? 'text-stone-500' : 'text-stone-400'} uppercase tracking-[0.2em]">
                     {file.name}
