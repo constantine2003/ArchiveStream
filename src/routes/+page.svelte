@@ -5,6 +5,18 @@
 
   // --- State Management ---
   let files = $state<{ id?: number; name: string; url: string; isEditing?: boolean }[]>([]);
+  let activeFileId = $state<string | null>(null);
+    /**
+     * Synchronizes the sidebar selection with the canvas scroll position.
+     * @param {string} fileId - The unique ID of the PDF file.
+     */
+    function handleSidebarSync(fileId: string) {
+      activeFileId = String(fileId);
+      const targetElement = document.getElementById(fileId);
+      if (targetElement) {
+        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
   let exportHistory = $state<{ name: string; date: string; url: string }[]>([]);
   let searchQuery = $state("");
   let isDragging = $state(false);
@@ -311,20 +323,21 @@
           ondragover={(e) => { e.preventDefault(); dragOverIndex = i; }}
           ondragleave={() => dragOverIndex = null}
           ondrop={() => handleDrop(i)}
+          onclick={() => handleSidebarSync(file.id)}
           class="group flex items-center gap-3 p-3 rounded-xl transition-all cursor-grab active:cursor-grabbing border
                {draggedIndex === i ? 'opacity-30' : 'opacity-100'}
                {dragOverIndex === i 
                  ? 'bg-amber-600/10 border-amber-600/30' 
                  : (isDark 
                     ? 'bg-transparent border-transparent hover:bg-stone-900 hover:border-stone-800' 
-                    : 'bg-transparent border-transparent hover:bg-white hover:shadow-sm hover:border-stone-200')}"
+                    : 'bg-transparent border-transparent hover:bg-white hover:shadow-sm hover:border-stone-200')}
+               {activeFileId === String(file.id) ? (isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
         >
           <div class="text-stone-500 opacity-30 group-hover:opacity-100 transition-opacity">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/>
             </svg>
           </div>
-
           <div class="flex-1 min-w-0">
             {#if file.isEditing}
               <input 
@@ -348,7 +361,6 @@
               </p>
             {/if}
           </div>
-
           <button onclick={() => removeFile(file.id, i)} class="opacity-0 group-hover:opacity-100 text-stone-400 hover:text-red-500 transition-all px-1" aria-label="Delete file">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -419,19 +431,24 @@
         </button>
       </div>
 
-      <div class="flex-1 overflow-y-auto p-4 pt-20 md:p-8 md:pt-20 pb-32 custom-scrollbar">
+      <div class="flex-1 overflow-y-auto p-4 pt-20 md:p-8 md:pt-20 pb-32 custom-scrollbar scroll-smooth">
         {#if viewMode === 'stream'}
-          <div class="space-y-12 md:space-y-24 scroll-smooth">
+          <div class="max-w-4xl mx-auto space-y-12 md:space-y-24">
             {#each files as file (file.id)}
-              <div class="max-w-full md:max-w-4xl mx-auto group">
+              <section 
+                id={file.id ? String(file.id) : ''} 
+                class="group transition-all duration-300 {activeFileId === String(file.id) ? (isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
+              >
                 <div class="flex items-center gap-4 mb-4 px-2 md:px-0">
-                  <span class="text-[10px] font-bold {isDark ? 'text-stone-500' : 'text-stone-400'} uppercase tracking-[0.2em]">{file.name}</span>
+                  <span class="text-[10px] font-bold {isDark ? 'text-stone-500' : 'text-stone-400'} uppercase tracking-[0.2em]">
+                    {file.name}
+                  </span>
                   <div class="h-px flex-1 {isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
                 </div>
                 <div class="bg-white rounded-xl shadow-2xl overflow-hidden border {isDark ? 'border-stone-800' : 'border-stone-200'}">
-                    <iframe src={file.url} title={file.name} class="w-full h-[60vh] md:h-[85vh]"></iframe>
+                  <iframe src={file.url} title={file.name} class="w-full h-[60vh] md:h-[85vh]"></iframe>
                 </div>
-              </div>
+              </section>
             {/each}
           </div>
         {:else}
