@@ -3,74 +3,48 @@
   import { onMount } from 'svelte';
   import { PDFDocument } from 'pdf-lib';
 
-  // --- State Management ---
-  let files = $state<(
-    { id?: number | string; name: string; url?: string; isEditing?: boolean; pageSelection?: string; selectionType?: 'all' | 'custom'; pageCount?: number }
-    | { id: string; type: 'chapter'; title: string; name: string; selectionType: 'all' }
-  )[]>([]);
-    // --- Add Chapter/Separator Page ---
-    function addChapter() {
-      const newChapter = {
-        id: crypto.randomUUID(),
-        type: 'chapter',
-        title: 'New Chapter',
-        name: 'Separator Page', // for sidebar sync
-        selectionType: 'all'
-      };
-      files = [...files, newChapter];
-    }
-  let activeFileId = $state<string | null>(null);
-    /**
-     * Synchronizes the sidebar selection with the canvas scroll position.
-     * @param {string} fileId - The unique ID of the PDF file.
-     */
-    function handleSidebarSync(fileId: string) {
-      activeFileId = String(fileId);
-      const targetElement = document.getElementById(fileId);
-      if (targetElement) {
-        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }
-  let exportHistory = $state<{ name: string; date: string; url: string }[]>([]);
-  let searchQuery = $state("");
-  let isDragging = $state(false);
-  let isExporting = $state(false);
-  let exportProgress = $state(0);
-  let showSuccess = $state(false);
-  let fileInput: HTMLInputElement;
-  let isDark = $state(false);
-  let sidebarOpen = $state(false);
-  let compressEnabled = $state(true);
+  // --- ArchiveStream Core Types ---
+  export interface ArchiveFile {
+    id: string;
+    name: string;
+    url: string;
+    type: 'pdf' | 'docx' | 'chapter';
+  }
+
+  let files: ArchiveFile[] = [];
+  let compressEnabled: boolean = true;
+  let isProcessing: boolean = false;
+
   /**
    * Resample an image to ~150 DPI (max 1200px on long side), keeping aspect ratio.
-   * @param {Uint8Array|ArrayBuffer} imageBytes - Raw image bytes.
-   * @param {string} mimeType - 'image/jpeg' or 'image/png'.
-   * @param {number} [maxDpi=150] - Target DPI (not used directly, but maxDim is set for 150 DPI).
-   * @returns {Promise<Uint8Array>} - Compressed image bytes.
+   * @param bytes Raw image bytes.
+   * @returns Compressed image bytes as Uint8Array.
    */
-  async function resampleImage(imageBytes, mimeType, maxDpi = 150) {
+  export async function resampleImage(bytes: Uint8Array): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
-      const blob = new Blob([imageBytes], { type: mimeType });
+      const blob = new Blob([bytes]);
       const img = new Image();
       img.onload = () => {
-        // Target max dimension for 150 DPI (e.g., 8.5in * 150 = 1275px, so 1200px is a good cap)
-        const maxDim = 1200;
-        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-        const width = Math.round(img.width * scale);
-        const height = Math.round(img.height * scale);
-
+        const MAX_DIM = 1200;
+        let width = img.width;
+        let height = img.height;
+        if (width > height && width > MAX_DIM) {
+          height = Math.round(height * (MAX_DIM / width));
+          width = MAX_DIM;
+        } else if (height > MAX_DIM) {
+          width = Math.round(width * (MAX_DIM / height));
+          height = MAX_DIM;
+        }
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-
-        // Always output JPEG for best compression
-        canvas.toBlob(async (result) => {
-          if (!result) return reject(new Error('Canvas export failed'));
-          const buf = await result.arrayBuffer();
-          resolve(new Uint8Array(buf));
-        }, 'image/jpeg', 0.7);
+        ctx?.drawImage(img, 0, 0, width, height);
+        canvas.toBlob((b) => {
+          URL.revokeObjectURL(img.src);
+          if (!b) return reject(new Error('Canvas export failed'));
+          b.arrayBuffer().then(buf => resolve(new Uint8Array(buf)));
+        }, 'image/jpeg', 0.75);
       };
       img.onerror = reject;
       img.src = URL.createObjectURL(blob);
@@ -78,27 +52,60 @@
   }
 
   /**
-   * Optimize PDF metadata and images (downscale images above 150 DPI)
-   * Handles JPEG and PNG images. Uses browser canvas for resampling.
+   * PDF Utility Tools (Fix, Flatten, Compress)
    */
-  async function optimizeMetadataAndImages(pdfDoc, shouldOptimize) {
-    if (!shouldOptimize) return;
-    // pdf-lib does not expose direct image access, so we can only optimize images added via Svelte/browser
-    // This is a placeholder for future pdf-lib support. For now, no-op.
-    // If you embed images manually, you can optimize before embedding.
-    // If pdf-lib exposes image access in future, add logic here.
-    // For now, this function is a stub.
-    return;
+  export async function handleUtility(fileId: string, action: 'fix' | 'flatten' | 'compress') {
+    const idx = files.findIndex(f => f.id === fileId);
+    if (idx === -1) return;
+    try {
+      const res = await fetch(files[idx].url);
+      const pdfDoc = await PDFDocument.load(await res.arrayBuffer());
+      let finalBytes: Uint8Array;
+      if (action === 'fix') {
+        const newDoc = await PDFDocument.create();
+        const pages = await newDoc.copyPages(pdfDoc, pdfDoc.getPageIndices());
+        pages.forEach(p => newDoc.addPage(p));
+        finalBytes = await newDoc.save();
+      } else if (action === 'flatten') {
+        pdfDoc.getForm().flatten();
+        finalBytes = await pdfDoc.save();
+      } else if (action === 'compress') {
+        // Just re-save with object streams for compression
+        finalBytes = await pdfDoc.save({ useObjectStreams: true, addDefaultMetadata: false });
+      } else {
+        return;
+      }
+      // Reactive Update
+      const blob = new Blob([finalBytes], { type: 'application/pdf' });
+      files[idx].url = URL.createObjectURL(blob);
+      files[idx].name = `${action.toUpperCase()}_${files[idx].name}`;
+      files = [...files];
+    } catch (e) {
+      console.error('Atelier Utility Error:', e);
+    }
   }
 
-  // --- View Mode State ---
-  let viewMode = $state<'stream' | 'grid'>('stream');
-
-  // --- Drag & Drop / Context Menu State ---
-  let draggedIndex = $state<number | null>(null);
-  let dragOverIndex = $state<number | null>(null);
-  let menuVisible = $state(false);
-  let menuPos = $state({ x: 0, y: 0 });
+  /**
+   * The Professional Export (Phase 2 & 3 Combined)
+   */
+  export async function generateExport() {
+    isProcessing = true;
+    const mergedPdf = await PDFDocument.create();
+    for (const file of files) {
+      const res = await fetch(file.url);
+      const doc = await PDFDocument.load(await res.arrayBuffer());
+      const pages = await mergedPdf.copyPages(doc, doc.getPageIndices());
+      pages.forEach(p => mergedPdf.addPage(p));
+    }
+    // Phase 3 Optimization Settings
+    const pdfBytes = await mergedPdf.save({
+      useObjectStreams: compressEnabled,
+      addDefaultMetadata: !compressEnabled,
+      updateFieldAppearances: false
+    });
+    // Download logic here...
+    isProcessing = false;
+  }
   let activeFileIndex = $state<number | null>(null);
 
   // --- Derived State ---
@@ -108,7 +115,8 @@
 
   onMount(async () => {
     const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark') isDark = true;
+    if
+     (savedTheme === 'dark') isDark = true;
     
     const savedHistory = localStorage.getItem('export_history');
     if (savedHistory) exportHistory = JSON.parse(savedHistory);
