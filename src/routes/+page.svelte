@@ -4,18 +4,28 @@
   import { PDFDocument } from 'pdf-lib';
 
   // --- State Management ---
-  let files = $state<(
-    { id?: number | string; name: string; url?: string; isEditing?: boolean; pageSelection?: string; selectionType?: 'all' | 'custom'; pageCount?: number }
-    | { id: string; type: 'chapter'; title: string; name: string; selectionType: 'all' }
-  )[]>([]);
+  type FileItem = {
+    id?: number | string;
+    name: string;
+    url?: string;
+    isEditing?: boolean;
+    pageSelection?: string;
+    selectionType?: 'all' | 'custom';
+    pageCount?: number;
+    type?: string; // Add optional type property
+    title?: string; // Add optional title property for chapters
+  };
+  
+  let files = $state<FileItem[]>([]);
     // --- Add Chapter/Separator Page ---
     function addChapter() {
-      const newChapter: { id: string; type: "chapter"; title: string; name: string; selectionType: "all" } = {
+      const newChapter: { id: string; type: "chapter"; title: string; name: string; selectionType: "all"; isEditing?: boolean } = {
         id: crypto.randomUUID(),
         type: "chapter",
         title: "New Chapter",
         name: "Separator Page", // for sidebar sync
-        selectionType: "all"
+        selectionType: "all",
+        isEditing: false
       };
       files = [...files, newChapter];
     }
@@ -48,9 +58,13 @@
    * @param {number} [maxDpi=150] - Target DPI (not used directly, but maxDim is set for 150 DPI).
    * @returns {Promise<Uint8Array>} - Compressed image bytes.
    */
-  async function resampleImage(imageBytes, mimeType, maxDpi = 150) {
+  async function resampleImage(imageBytes: Uint8Array | ArrayBuffer, mimeType: string, maxDpi = 150) {
     return new Promise((resolve, reject) => {
-      const blob = new Blob([imageBytes], { type: mimeType });
+      const blob = new Blob([
+        imageBytes instanceof Uint8Array
+          ? imageBytes.buffer
+          : imageBytes
+      ], { type: mimeType });
       const img = new Image();
       img.onload = () => {
         // Target max dimension for 150 DPI (e.g., 8.5in * 150 = 1275px, so 1200px is a good cap)
@@ -84,7 +98,7 @@
    * Optimize PDF metadata and images (downscale images above 150 DPI)
    * Handles JPEG and PNG images. Uses browser canvas for resampling.
    */
-  async function optimizeMetadataAndImages(pdfDoc, shouldOptimize) {
+  async function optimizeMetadataAndImages(pdfDoc: PDFDocument, shouldOptimize: boolean) {
     if (!shouldOptimize) return;
     // pdf-lib does not expose direct image access, so we can only optimize images added via Svelte/browser
     // This is a placeholder for future pdf-lib support. For now, no-op.
@@ -251,14 +265,21 @@
 
   async function removeFile(id: number | undefined, index: number) {
     if (id) await supabase.from('document_queue').delete().eq('id', id);
-    URL.revokeObjectURL(files[index].url);
+    const file = files[index];
+    if ('url' in file && file.url) {
+      URL.revokeObjectURL(file.url);
+    }
     files = files.filter((_, i) => i !== index);
   }
 
   async function clearQueue() {
     if (!confirm("Clear all documents?")) return;
     await supabase.from('document_queue').delete().neq('id', 0);
-    files.forEach(f => URL.revokeObjectURL(f.url));
+    files.forEach(f => {
+      if ('url' in f && f.url) {
+        URL.revokeObjectURL(f.url);
+      }
+    });
     files = [];
   }
 
@@ -378,7 +399,11 @@
         Rename
       </button>
       <div class="h-px my-1 {isDark ? 'bg-stone-800' : 'bg-stone-100'}"></div>
-      <button onclick={() => { removeFile(files[activeFileIndex!].id, activeFileIndex!); closeMenu(); }} class="w-full text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-colors text-red-500 {isDark ? 'hover:bg-red-500/10' : 'hover:bg-red-50'}">
+      <button onclick={() => { 
+        const id = files[activeFileIndex!].id;
+        removeFile(typeof id === 'number' ? id : undefined, activeFileIndex!); 
+        closeMenu(); 
+      }} class="w-full text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-colors text-red-500 {isDark ? 'hover:bg-red-500/10' : 'hover:bg-red-50'}">
         Delete
       </button>
     </div>
@@ -475,14 +500,15 @@
           ondragleave={() => dragOverIndex = null}
           ondrop={() => handleDrop(i)}
           onclick={() => handleSidebarSync(file.id)}
-          class="group flex items-center gap-3 p-3 rounded-xl transition-all cursor-grab active:cursor-grabbing border
-               {draggedIndex === i ? 'opacity-30' : 'opacity-100'}
-               {dragOverIndex === i 
-                 ? 'bg-amber-600/10 border-amber-600/30' 
-                 : (isDark 
-                    ? 'bg-transparent border-transparent hover:bg-stone-900 hover:border-stone-800' 
-                    : 'bg-transparent border-transparent hover:bg-white hover:shadow-sm hover:border-stone-200')}
-               {activeFileId === String(file.id) ? (isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
+          class="group flex items-center gap-3 p-3 rounded-xl transition-all cursor-grab active:cursor-grabbing border {[
+            draggedIndex === i ? 'opacity-20 scale-95' : 'opacity-100',
+            dragOverIndex === i 
+              ? 'bg-amber-600/10 border-amber-600/30' 
+              : (isDark 
+                  ? 'bg-transparent border-transparent hover:bg-stone-900 hover:border-stone-800' 
+                  : 'bg-transparent border-transparent hover:bg-white hover:shadow-sm hover:border-stone-200'),
+            activeFileId === String(file.id) ? (isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''
+          ].join(' ')}"
         >
           <div class="text-stone-500 opacity-30 group-hover:opacity-100 transition-opacity">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -512,7 +538,7 @@
               </p>
             {/if}
           </div>
-          <button onclick={() => removeFile(file.id, i)} class="opacity-0 group-hover:opacity-100 text-stone-400 hover:text-red-500 transition-all px-1" aria-label="Delete file">
+          <button onclick={() => removeFile(typeof file.id === 'number' ? file.id : undefined, i)} class="opacity-0 group-hover:opacity-100 text-stone-400 hover:text-red-500 transition-all px-1" aria-label="Delete file">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
@@ -571,12 +597,15 @@
         <button 
           onclick={() => viewMode = 'stream'} 
           class="p-2 rounded-lg transition-all {viewMode === 'stream' ? (isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white') : (isDark ? 'bg-stone-900 text-stone-500' : 'bg-white text-stone-400')}"
+          aria-label="Stream view"
+          title="Stream view"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
         </button>
         <button 
           onclick={() => viewMode = 'grid'} 
           class="p-2 rounded-lg transition-all {viewMode === 'grid' ? (isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white') : (isDark ? 'bg-stone-900 text-stone-500' : 'bg-white text-stone-400')}"
+          aria-label="Grid view"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg>
         </button>
@@ -596,7 +625,7 @@
                       placeholder="Enter Title..."
                     />
                     <div class="mt-8 flex gap-4">
-                      <button onclick={() => removeFile(file.id, i)} class="text-[10px] font-bold text-red-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onclick={() => removeFile(typeof file.id === 'number' ? file.id : undefined, i)} class="text-[10px] font-bold text-red-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
                         Remove Chapter
                       </button>
                     </div>
@@ -612,12 +641,20 @@
                       <span class="text-[10px] font-black uppercase tracking-tighter {isDark ? 'text-stone-400' : 'text-stone-500'}">Scope:</span>
                       <div class="flex bg-stone-200 {isDark ? 'bg-stone-800' : 'bg-stone-200'} p-1 rounded-md">
                         <button 
-                          onclick={() => { file.selectionType = 'all'; file.pageSelection = 'all'; }}
+                          onclick={() => { 
+                            file.selectionType = 'all'; 
+                            if ('pageSelection' in file) file.pageSelection = 'all'; 
+                          }}
                           class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType !== 'custom' ? (isDark ? 'bg-stone-700 text-white' : 'bg-white text-stone-900 shadow-sm') : 'text-stone-500'}">
                           ALL
                         </button>
                         <button 
-                          onclick={() => { file.selectionType = 'custom'; if (!file.pageSelection || file.pageSelection === 'all') file.pageSelection = ''; }}
+                          onclick={() => { 
+                            file.selectionType = 'custom'; 
+                            if ('pageSelection' in file) {
+                              if (!file.pageSelection || file.pageSelection === 'all') file.pageSelection = '';
+                            }
+                          }}
                           class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType === 'custom' ? (isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white shadow-sm') : 'text-stone-500'}">
                           CUSTOM
                         </button>
@@ -658,10 +695,12 @@
             {#each files as file, i (file.id)}
               <div 
                 draggable="true"
+                role="listitem"
+                aria-grabbed={draggedIndex === i}
                 ondragstart={() => draggedIndex = i}
                 ondragover={(e) => { e.preventDefault(); dragOverIndex = i; }}
                 ondrop={() => handleDrop(i)}
-                class="group relative aspect-[3/4] rounded-2xl border-2 transition-all duration-300 cursor-grab active:cursor-grabbing flex flex-col items-center justify-center p-4 text-center
+                class="group relative aspect-3/4 rounded-2xl border-2 transition-all duration-300 cursor-grab active:cursor-grabbing flex flex-col items-center justify-center p-4 text-center
                 {draggedIndex === i ? 'opacity-20 scale-95' : 'opacity-100'}
                 {dragOverIndex === i ? 'border-amber-500 bg-amber-500/5' : (isDark ? 'border-stone-800 bg-stone-900/40 hover:border-stone-600' : 'border-stone-200 bg-white shadow-sm hover:border-amber-500')}"
               >
@@ -673,12 +712,16 @@
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
 
-                <p class="text-[10px] font-bold uppercase tracking-widest leading-tight px-2 break-words line-clamp-2 {isDark ? 'text-stone-400 group-hover:text-stone-200' : 'text-stone-600 group-hover:text-black'}">
+                <p class="text-[10px] font-bold uppercase tracking-widest leading-tight px-2 wrap-break-word line-clamp-2 {isDark ? 'text-stone-400 group-hover:text-stone-200' : 'text-stone-600 group-hover:text-black'}">
                   {file.name}
                 </p>
 
                 <button 
-                  onclick={(e) => { e.stopPropagation(); removeFile(file.id, i); }}
+                  aria-label="Remove file"
+                  onclick={(e) => { 
+                    e.stopPropagation(); 
+                    removeFile(typeof file.id === 'number' ? file.id : undefined, i); 
+                  }}
                   class="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:scale-110 shadow-lg"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -706,7 +749,7 @@
             <button onclick={addChapter} class="flex-1 py-4 bg-stone-200 hover:bg-amber-100 text-amber-700 rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-xl transition-all border border-stone-300">
               + Chapter
             </button>
-            <button onclick={handleExport} disabled={isExporting} class="flex-[2] py-4 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all">
+            <button onclick={handleExport} disabled={isExporting} class="flex-2 py-4 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all">
               {isExporting ? 'Compressing...' : 'Export PDF'}
             </button>
           </div>
