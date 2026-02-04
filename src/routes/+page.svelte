@@ -10,12 +10,12 @@
   )[]>([]);
     // --- Add Chapter/Separator Page ---
     function addChapter() {
-      const newChapter = {
+      const newChapter: { id: string; type: "chapter"; title: string; name: string; selectionType: "all" } = {
         id: crypto.randomUUID(),
-        type: 'chapter',
-        title: 'New Chapter',
-        name: 'Separator Page', // for sidebar sync
-        selectionType: 'all'
+        type: "chapter",
+        title: "New Chapter",
+        name: "Separator Page", // for sidebar sync
+        selectionType: "all"
       };
       files = [...files, newChapter];
     }
@@ -63,6 +63,9 @@
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          return reject(new Error('Could not get canvas 2D context'));
+        }
         ctx.drawImage(img, 0, 0, width, height);
 
         // Always output JPEG for best compression
