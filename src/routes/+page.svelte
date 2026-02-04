@@ -616,7 +616,7 @@
           <div class="max-w-4xl mx-auto space-y-12 md:space-y-24">
             {#each files as file, i (file.id)}
               {#if file.type === 'chapter'}
-                <section id={file.id} class="max-w-4xl mx-auto my-12 group transition-all">
+                <section id={file.id ? String(file.id) : undefined} class="max-w-4xl mx-auto my-12 group transition-all">
                   <div class="bg-stone-50 {isDark ? 'bg-stone-900/30' : 'bg-stone-50'} border-2 border-dashed {isDark ? 'border-stone-800' : 'border-stone-200'} rounded-2xl p-20 flex flex-col items-center justify-center">
                     <span class="text-[10px] font-black uppercase tracking-[0.4em] text-amber-600 mb-8">Section Break</span>
                     <input 
