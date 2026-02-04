@@ -199,14 +199,22 @@
     try {
       isExporting = true; showSuccess = false; exportProgress = 0;
       const mergedPdf = await PDFDocument.create();
-      
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const response = await fetch(file.url);
         const pdfBytes = await response.arrayBuffer();
         const pdf = await PDFDocument.load(pdfBytes);
-        const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
-        copiedPages.forEach((page) => mergedPdf.addPage(page));
+        const maxPages = pdf.getPageCount();
+        let indices: number[] = [];
+        if (file.selectionType === 'custom' && file.pageSelection && file.pageSelection.trim() !== '') {
+          indices = parsePageRanges(file.pageSelection, maxPages).map(n => n - 1).filter(idx => idx >= 0 && idx < maxPages);
+        } else {
+          indices = Array.from({length: maxPages}, (_, idx) => idx);
+        }
+        if (indices.length > 0) {
+          const copiedPages = await mergedPdf.copyPages(pdf, indices);
+          copiedPages.forEach((page) => mergedPdf.addPage(page));
+        }
         exportProgress = Math.round(((i + 1) / files.length) * 100);
       }
 
@@ -216,7 +224,7 @@
       const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
       const exportUrl = URL.createObjectURL(blob);
       const fileName = `ArchiveStream_${Date.now()}.pdf`;
-      
+
       const link = document.createElement('a');
       link.href = exportUrl;
       link.download = fileName;
