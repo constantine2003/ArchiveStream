@@ -42,6 +42,42 @@
   let sidebarOpen = $state(false);
   let compressEnabled = $state(true);
   /**
+   * Resample an image to ~150 DPI (max 1200px on long side), keeping aspect ratio.
+   * @param {Uint8Array|ArrayBuffer} imageBytes - Raw image bytes.
+   * @param {string} mimeType - 'image/jpeg' or 'image/png'.
+   * @param {number} [maxDpi=150] - Target DPI (not used directly, but maxDim is set for 150 DPI).
+   * @returns {Promise<Uint8Array>} - Compressed image bytes.
+   */
+  async function resampleImage(imageBytes, mimeType, maxDpi = 150) {
+    return new Promise((resolve, reject) => {
+      const blob = new Blob([imageBytes], { type: mimeType });
+      const img = new Image();
+      img.onload = () => {
+        // Target max dimension for 150 DPI (e.g., 8.5in * 150 = 1275px, so 1200px is a good cap)
+        const maxDim = 1200;
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const width = Math.round(img.width * scale);
+        const height = Math.round(img.height * scale);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Always output JPEG for best compression
+        canvas.toBlob(async (result) => {
+          if (!result) return reject(new Error('Canvas export failed'));
+          const buf = await result.arrayBuffer();
+          resolve(new Uint8Array(buf));
+        }, 'image/jpeg', 0.7);
+      };
+      img.onerror = reject;
+      img.src = URL.createObjectURL(blob);
+    });
+  }
+
+  /**
    * Optimize PDF metadata and images (downscale images above 150 DPI)
    * Handles JPEG and PNG images. Uses browser canvas for resampling.
    */
