@@ -4,7 +4,21 @@
   import { PDFDocument } from 'pdf-lib';
 
   // --- State Management ---
-  let files = $state<{ id?: number; name: string; url: string; isEditing?: boolean; pageSelection?: string; selectionType?: 'all' | 'custom'; pageCount?: number }[]>([]);
+  let files = $state<(
+    { id?: number | string; name: string; url?: string; isEditing?: boolean; pageSelection?: string; selectionType?: 'all' | 'custom'; pageCount?: number }
+    | { id: string; type: 'chapter'; title: string; name: string; selectionType: 'all' }
+  )[]>([]);
+    // --- Add Chapter/Separator Page ---
+    function addChapter() {
+      const newChapter = {
+        id: crypto.randomUUID(),
+        type: 'chapter',
+        title: 'New Chapter',
+        name: 'Separator Page', // for sidebar sync
+        selectionType: 'all'
+      };
+      files = [...files, newChapter];
+    }
   let activeFileId = $state<string | null>(null);
     /**
      * Synchronizes the sidebar selection with the canvas scroll position.
@@ -199,21 +213,60 @@
     try {
       isExporting = true; showSuccess = false; exportProgress = 0;
       const mergedPdf = await PDFDocument.create();
+      // Import StandardFonts and rgb from pdf-lib
+      const { StandardFonts, rgb } = await import('pdf-lib');
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const response = await fetch(file.url);
-        const pdfBytes = await response.arrayBuffer();
-        const pdf = await PDFDocument.load(pdfBytes);
-        const maxPages = pdf.getPageCount();
-        let indices: number[] = [];
-        if (file.selectionType === 'custom' && file.pageSelection && file.pageSelection.trim() !== '') {
-          indices = parsePageRanges(file.pageSelection, maxPages).map(n => n - 1).filter(idx => idx >= 0 && idx < maxPages);
+        if ((file as any).type === 'chapter') {
+          // Insert a stylized chapter/separator page
+          const page = mergedPdf.addPage([600, 800]); // Portrait
+          const { width, height } = page.getSize();
+          const font = await mergedPdf.embedFont(StandardFonts.TimesRomanBold);
+          const fontSize = 32;
+          const title = (file as any).title || 'Section';
+          const textWidth = font.widthOfTextAtSize(title.toUpperCase(), fontSize);
+          // Draw background color (stone/amber aesthetic)
+          page.drawRectangle({
+            x: 0, y: 0, width, height,
+            color: (i % 2 === 0)
+              ? rgb(0.97, 0.95, 0.92) // light stone
+              : rgb(0.12, 0.10, 0.09) // dark stone
+          });
+          // Draw "Section Break" label
+          const labelFont = await mergedPdf.embedFont(StandardFonts.TimesRomanBold);
+          page.drawText('SECTION BREAK', {
+            x: width / 2 - labelFont.widthOfTextAtSize('SECTION BREAK', 10) / 2,
+            y: height - 80,
+            size: 10,
+            font: labelFont,
+            color: rgb(0.85, 0.53, 0.13) // amber
+          });
+          // Draw the title centered
+          page.drawText(title.toUpperCase(), {
+            x: (width - textWidth) / 2,
+            y: height / 2,
+            size: fontSize,
+            font: font,
+            color: (i % 2 === 0)
+              ? rgb(0.12, 0.10, 0.09) // dark stone
+              : rgb(0.97, 0.95, 0.92) // light stone
+          });
         } else {
-          indices = Array.from({length: maxPages}, (_, idx) => idx);
-        }
-        if (indices.length > 0) {
-          const copiedPages = await mergedPdf.copyPages(pdf, indices);
-          copiedPages.forEach((page) => mergedPdf.addPage(page));
+          // Existing PDF merging logic (copyPages)
+          const response = await fetch((file as any).url);
+          const pdfBytes = await response.arrayBuffer();
+          const pdf = await PDFDocument.load(pdfBytes);
+          const maxPages = pdf.getPageCount();
+          let indices: number[] = [];
+          if ((file as any).selectionType === 'custom' && (file as any).pageSelection && (file as any).pageSelection.trim() !== '') {
+            indices = parsePageRanges((file as any).pageSelection, maxPages).map(n => n - 1).filter(idx => idx >= 0 && idx < maxPages);
+          } else {
+            indices = Array.from({length: maxPages}, (_, idx) => idx);
+          }
+          if (indices.length > 0) {
+            const copiedPages = await mergedPdf.copyPages(pdf, indices);
+            copiedPages.forEach((page) => mergedPdf.addPage(page));
+          }
         }
         exportProgress = Math.round(((i + 1) / files.length) * 100);
       }
@@ -474,55 +527,72 @@
       <div class="flex-1 overflow-y-auto p-4 pt-20 md:p-8 md:pt-20 pb-32 custom-scrollbar scroll-smooth">
         {#if viewMode === 'stream'}
           <div class="max-w-4xl mx-auto space-y-12 md:space-y-24">
-            {#each files as file (file.id)}
-              <section 
-                id={file.id ? String(file.id) : ''} 
-                class="group transition-all duration-300 {activeFileId === String(file.id) ? (isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
-              >
-                <div class="flex flex-wrap items-center justify-between gap-4 mb-4 px-4 py-3 bg-stone-50 {isDark ? 'bg-stone-900/50' : 'bg-stone-50'} rounded-lg border {isDark ? 'border-stone-800' : 'border-stone-200'}">
-                  <div class="flex items-center gap-3">
-                    <span class="text-[10px] font-black uppercase tracking-tighter {isDark ? 'text-stone-400' : 'text-stone-500'}">Scope:</span>
-                    <div class="flex bg-stone-200 {isDark ? 'bg-stone-800' : 'bg-stone-200'} p-1 rounded-md">
-                      <button 
-                        onclick={() => { file.selectionType = 'all'; file.pageSelection = 'all'; }}
-                        class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType !== 'custom' ? (isDark ? 'bg-stone-700 text-white' : 'bg-white text-stone-900 shadow-sm') : 'text-stone-500'}">
-                        ALL
-                      </button>
-                      <button 
-                        onclick={() => { file.selectionType = 'custom'; if (!file.pageSelection || file.pageSelection === 'all') file.pageSelection = ''; }}
-                        class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType === 'custom' ? (isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white shadow-sm') : 'text-stone-500'}">
-                        CUSTOM
+            {#each files as file, i (file.id)}
+              {#if file.type === 'chapter'}
+                <section id={file.id} class="max-w-4xl mx-auto my-12 group transition-all">
+                  <div class="bg-stone-50 {isDark ? 'bg-stone-900/30' : 'bg-stone-50'} border-2 border-dashed {isDark ? 'border-stone-800' : 'border-stone-200'} rounded-2xl p-20 flex flex-col items-center justify-center">
+                    <span class="text-[10px] font-black uppercase tracking-[0.4em] text-amber-600 mb-8">Section Break</span>
+                    <input 
+                      bind:value={file.title}
+                      class="bg-transparent text-4xl md:text-6xl font-serif text-stone-800 {isDark ? 'text-stone-200' : 'text-stone-800'} text-center w-full outline-none border-b border-transparent focus:border-amber-500/30 pb-4 transition-all"
+                      placeholder="Enter Title..."
+                    />
+                    <div class="mt-8 flex gap-4">
+                      <button onclick={() => removeFile(file.id, i)} class="text-[10px] font-bold text-red-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+                        Remove Chapter
                       </button>
                     </div>
                   </div>
-
-                  {#if file.selectionType === 'custom'}
-                    <div class="flex-1 max-w-xs relative">
-                      <input 
-                        type="text" 
-                        placeholder="e.g. 1, 3-5, 10" 
-                        bind:value={file.pageSelection}
-                        class="w-full pl-3 pr-10 py-1.5 text-xs font-mono bg-transparent border-b-2 {isDark ? 'border-stone-700 focus:border-amber-500' : 'border-stone-300 focus:border-stone-900'} outline-none transition-colors"
-                      />
-                      <span class="absolute right-0 top-1.5 text-[9px] font-bold {isDark ? 'text-stone-600' : 'text-stone-400'}">
-                        PG. RANGE
-                      </span>
+                </section>
+              {:else}
+                <section 
+                  id={file.id ? String(file.id) : ''} 
+                  class="group transition-all duration-300 {activeFileId === String(file.id) ? (isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-4 mb-4 px-4 py-3 bg-stone-50 {isDark ? 'bg-stone-900/50' : 'bg-stone-50'} rounded-lg border {isDark ? 'border-stone-800' : 'border-stone-200'}">
+                    <div class="flex items-center gap-3">
+                      <span class="text-[10px] font-black uppercase tracking-tighter {isDark ? 'text-stone-400' : 'text-stone-500'}">Scope:</span>
+                      <div class="flex bg-stone-200 {isDark ? 'bg-stone-800' : 'bg-stone-200'} p-1 rounded-md">
+                        <button 
+                          onclick={() => { file.selectionType = 'all'; file.pageSelection = 'all'; }}
+                          class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType !== 'custom' ? (isDark ? 'bg-stone-700 text-white' : 'bg-white text-stone-900 shadow-sm') : 'text-stone-500'}">
+                          ALL
+                        </button>
+                        <button 
+                          onclick={() => { file.selectionType = 'custom'; if (!file.pageSelection || file.pageSelection === 'all') file.pageSelection = ''; }}
+                          class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType === 'custom' ? (isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white shadow-sm') : 'text-stone-500'}">
+                          CUSTOM
+                        </button>
+                      </div>
                     </div>
-                  {/if}
-                  <div class="text-[10px] font-bold {isDark ? 'text-amber-500' : 'text-stone-400'}">
-                    {file.selectionType === 'custom' ? 'PARTIAL EXPORT' : 'FULL DOCUMENT'}
+                    {#if file.selectionType === 'custom'}
+                      <div class="flex-1 max-w-xs relative">
+                        <input 
+                          type="text" 
+                          placeholder="e.g. 1, 3-5, 10" 
+                          bind:value={file.pageSelection}
+                          class="w-full pl-3 pr-10 py-1.5 text-xs font-mono bg-transparent border-b-2 {isDark ? 'border-stone-700 focus:border-amber-500' : 'border-stone-300 focus:border-stone-900'} outline-none transition-colors"
+                        />
+                        <span class="absolute right-0 top-1.5 text-[9px] font-bold {isDark ? 'text-stone-600' : 'text-stone-400'}">
+                          PG. RANGE
+                        </span>
+                      </div>
+                    {/if}
+                    <div class="text-[10px] font-bold {isDark ? 'text-amber-500' : 'text-stone-400'}">
+                      {file.selectionType === 'custom' ? 'PARTIAL EXPORT' : 'FULL DOCUMENT'}
+                    </div>
                   </div>
-                </div>
-                <div class="flex items-center gap-4 mb-4 px-2 md:px-0">
-                  <span class="text-[10px] font-bold {isDark ? 'text-stone-500' : 'text-stone-400'} uppercase tracking-[0.2em]">
-                    {file.name}
-                  </span>
-                  <div class="h-px flex-1 {isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
-                </div>
-                <div class="bg-white rounded-xl shadow-2xl overflow-hidden border {isDark ? 'border-stone-800' : 'border-stone-200'}">
-                  <iframe src={file.url} title={file.name} class="w-full h-[60vh] md:h-[85vh]"></iframe>
-                </div>
-              </section>
+                  <div class="flex items-center gap-4 mb-4 px-2 md:px-0">
+                    <span class="text-[10px] font-bold {isDark ? 'text-stone-500' : 'text-stone-400'} uppercase tracking-[0.2em]">
+                      {file.name}
+                    </span>
+                    <div class="h-px flex-1 {isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
+                  </div>
+                  <div class="bg-white rounded-xl shadow-2xl overflow-hidden border {isDark ? 'border-stone-800' : 'border-stone-200'}">
+                    <iframe src={file.url} title={file.name} class="w-full h-[60vh] md:h-[85vh]"></iframe>
+                  </div>
+                </section>
+              {/if}
             {/each}
           </div>
         {:else}
@@ -561,11 +631,17 @@
         {/if}
       </div>
 
-      <div class="fixed md:absolute bottom-6 md:bottom-10 left-1/2 -translate-x-1/2 flex justify-center px-4 z-20 w-full">
+      <div class="fixed md:absolute bottom-6 md:bottom-10 left-1/2 -translate-x-1/2 flex justify-center px-4 z-20 w-full gap-2">
         <button 
-            onclick={handleExport}
-            disabled={isExporting}
-            class="w-full max-w-xs md:w-auto md:px-12 py-4 md:py-5 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-xs md:text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all hover:scale-105 active:scale-95"
+          onclick={addChapter}
+          class="max-w-xs md:w-auto md:px-8 py-4 md:py-5 bg-stone-200 hover:bg-amber-100 text-amber-700 rounded-full font-bold text-xs md:text-[10px] tracking-[0.3em] uppercase shadow-xl transition-all hover:scale-105 active:scale-95 border border-stone-300"
+        >
+          + Add Chapter
+        </button>
+        <button 
+          onclick={handleExport}
+          disabled={isExporting}
+          class="w-full max-w-xs md:w-auto md:px-12 py-4 md:py-5 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-xs md:text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all hover:scale-105 active:scale-95"
         >
           {isExporting ? 'Processing...' : 'Export Collection'}
         </button>
