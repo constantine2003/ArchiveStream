@@ -60,11 +60,16 @@
    */
   async function resampleImage(imageBytes: Uint8Array | ArrayBuffer, mimeType: string, maxDpi = 150) {
     return new Promise((resolve, reject) => {
-      const blob = new Blob([
-        imageBytes instanceof Uint8Array
-          ? imageBytes.buffer
-          : imageBytes
-      ], { type: mimeType });
+      // Always convert to ArrayBuffer for Blob compatibility
+      let arrayBuffer: ArrayBuffer;
+      if (imageBytes instanceof Uint8Array) {
+        arrayBuffer = imageBytes.buffer as ArrayBuffer;
+      } else if (imageBytes instanceof ArrayBuffer) {
+        arrayBuffer = imageBytes;
+      } else {
+        arrayBuffer = new ArrayBuffer(0);
+      }
+      const blob = new Blob([arrayBuffer], { type: mimeType });
       const img = new Image();
       img.onload = () => {
         // Target max dimension for 150 DPI (e.g., 8.5in * 150 = 1275px, so 1200px is a good cap)
