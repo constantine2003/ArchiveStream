@@ -5,6 +5,18 @@
 
   // --- State Management ---
   let files = $state<{ id?: number; name: string; url: string; isEditing?: boolean }[]>([]);
+  let activeFileId = $state<string | null>(null);
+    /**
+     * Synchronizes the sidebar selection with the canvas scroll position.
+     * @param {string} fileId - The unique ID of the PDF file.
+     */
+    function handleSidebarSync(fileId: string) {
+      activeFileId = String(fileId);
+      const targetElement = document.getElementById(fileId);
+      if (targetElement) {
+        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
   let exportHistory = $state<{ name: string; date: string; url: string }[]>([]);
   let searchQuery = $state("");
   let isDragging = $state(false);
@@ -14,6 +26,9 @@
   let fileInput: HTMLInputElement;
   let isDark = $state(false);
   let sidebarOpen = $state(false);
+
+  // --- View Mode State ---
+  let viewMode = $state<'stream' | 'grid'>('stream');
 
   // --- Drag & Drop / Context Menu State ---
   let draggedIndex = $state<number | null>(null);
@@ -308,20 +323,21 @@
           ondragover={(e) => { e.preventDefault(); dragOverIndex = i; }}
           ondragleave={() => dragOverIndex = null}
           ondrop={() => handleDrop(i)}
+          onclick={() => handleSidebarSync(file.id)}
           class="group flex items-center gap-3 p-3 rounded-xl transition-all cursor-grab active:cursor-grabbing border
                {draggedIndex === i ? 'opacity-30' : 'opacity-100'}
                {dragOverIndex === i 
                  ? 'bg-amber-600/10 border-amber-600/30' 
                  : (isDark 
                     ? 'bg-transparent border-transparent hover:bg-stone-900 hover:border-stone-800' 
-                    : 'bg-transparent border-transparent hover:bg-white hover:shadow-sm hover:border-stone-200')}"
+                    : 'bg-transparent border-transparent hover:bg-white hover:shadow-sm hover:border-stone-200')}
+               {activeFileId === String(file.id) ? (isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
         >
           <div class="text-stone-500 opacity-30 group-hover:opacity-100 transition-opacity">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/>
             </svg>
           </div>
-
           <div class="flex-1 min-w-0">
             {#if file.isEditing}
               <input 
@@ -345,7 +361,6 @@
               </p>
             {/if}
           </div>
-
           <button onclick={() => removeFile(file.id, i)} class="opacity-0 group-hover:opacity-100 text-stone-400 hover:text-red-500 transition-all px-1" aria-label="Delete file">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -392,7 +407,7 @@
     <button class="absolute top-4 left-4 z-30 md:hidden bg-white/80 dark:bg-stone-900/80 rounded-lg p-2 shadow-md border border-stone-200 dark:border-stone-800" onclick={() => sidebarOpen = true} aria-label="Open sidebar">
       <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-stone-700 dark:text-stone-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
     </button>
-    
+
     {#if files.length === 0}
       <div class="flex-1 flex flex-col items-center justify-center opacity-30 px-4">       
         <div class="w-14 h-14 md:w-16 md:h-16 mb-4 md:mb-6 border border-dashed {isDark ? 'border-stone-700' : 'border-stone-400'} rounded-full flex items-center justify-center cursor-pointer hover:bg-amber-600/10 transition" onclick={() => fileInput.click()} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { fileInput.click(); } }} tabindex="0" role="button" aria-label="Import PDF">
@@ -401,18 +416,75 @@
         <p class="text-xs md:text-[10px] {isDark ? 'text-stone-400' : 'text-stone-600'} font-bold tracking-[0.3em] uppercase text-center">Drop Files to Begin</p>
       </div>
     {:else}
-      <div class="flex-1 overflow-y-auto p-4 pt-20 md:p-8 md:pt-12 pb-32 space-y-12 md:space-y-24 scroll-smooth custom-scrollbar">
-        {#each files as file (file.id)}
-          <div class="max-w-full md:max-w-4xl mx-auto">
-            <div class="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 mb-4 md:mb-6 px-2 md:px-0">
-              <span class="text-xs md:text-[10px] font-bold {isDark ? 'text-stone-500' : 'text-stone-400'} uppercase tracking-[0.2em] truncate">{file.name}</span>
-              <div class="h-px flex-1 {isDark ? 'bg-stone-800' : 'bg-stone-200'} hidden md:block"></div>
-            </div>
-            <div class="bg-white rounded-xl md:rounded-2xl shadow-xl md:shadow-2xl overflow-hidden border {isDark ? 'border-stone-800' : 'border-stone-200'}">
-                <iframe src={file.url} title={file.name} class="w-full min-h-[50vh] h-[60vw] max-h-[70vh] md:h-[85vh] bg-white"></iframe>
-            </div>
+      <div class="absolute top-4 right-4 z-30 flex gap-2">
+        <button 
+          onclick={() => viewMode = 'stream'} 
+          class="p-2 rounded-lg transition-all {viewMode === 'stream' ? (isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white') : (isDark ? 'bg-stone-900 text-stone-500' : 'bg-white text-stone-400')}"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+        </button>
+        <button 
+          onclick={() => viewMode = 'grid'} 
+          class="p-2 rounded-lg transition-all {viewMode === 'grid' ? (isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white') : (isDark ? 'bg-stone-900 text-stone-500' : 'bg-white text-stone-400')}"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg>
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-4 pt-20 md:p-8 md:pt-20 pb-32 custom-scrollbar scroll-smooth">
+        {#if viewMode === 'stream'}
+          <div class="max-w-4xl mx-auto space-y-12 md:space-y-24">
+            {#each files as file (file.id)}
+              <section 
+                id={file.id ? String(file.id) : ''} 
+                class="group transition-all duration-300 {activeFileId === String(file.id) ? (isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
+              >
+                <div class="flex items-center gap-4 mb-4 px-2 md:px-0">
+                  <span class="text-[10px] font-bold {isDark ? 'text-stone-500' : 'text-stone-400'} uppercase tracking-[0.2em]">
+                    {file.name}
+                  </span>
+                  <div class="h-px flex-1 {isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
+                </div>
+                <div class="bg-white rounded-xl shadow-2xl overflow-hidden border {isDark ? 'border-stone-800' : 'border-stone-200'}">
+                  <iframe src={file.url} title={file.name} class="w-full h-[60vh] md:h-[85vh]"></iframe>
+                </div>
+              </section>
+            {/each}
           </div>
-        {/each}
+        {:else}
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 max-w-7xl mx-auto">
+            {#each files as file, i (file.id)}
+              <div 
+                draggable="true"
+                ondragstart={() => draggedIndex = i}
+                ondragover={(e) => { e.preventDefault(); dragOverIndex = i; }}
+                ondrop={() => handleDrop(i)}
+                class="group relative aspect-[3/4] rounded-2xl border-2 transition-all duration-300 cursor-grab active:cursor-grabbing flex flex-col items-center justify-center p-4 text-center
+                {draggedIndex === i ? 'opacity-20 scale-95' : 'opacity-100'}
+                {dragOverIndex === i ? 'border-amber-500 bg-amber-500/5' : (isDark ? 'border-stone-800 bg-stone-900/40 hover:border-stone-600' : 'border-stone-200 bg-white shadow-sm hover:border-amber-500')}"
+              >
+                <div class="absolute top-3 left-3 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold {isDark ? 'bg-stone-800 text-stone-400' : 'bg-stone-100 text-stone-500'}">
+                  {i + 1}
+                </div>
+
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12 mb-4 {isDark ? 'text-stone-700' : 'text-stone-200'}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+
+                <p class="text-[10px] font-bold uppercase tracking-widest leading-tight px-2 break-words line-clamp-2 {isDark ? 'text-stone-400 group-hover:text-stone-200' : 'text-stone-600 group-hover:text-black'}">
+                  {file.name}
+                </p>
+
+                <button 
+                  onclick={(e) => { e.stopPropagation(); removeFile(file.id, i); }}
+                  class="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:scale-110 shadow-lg"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
       </div>
 
       <div class="fixed md:absolute bottom-6 md:bottom-10 left-1/2 -translate-x-1/2 flex justify-center px-4 z-20 w-full">
