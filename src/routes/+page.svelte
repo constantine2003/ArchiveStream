@@ -376,81 +376,116 @@
             color: (i % 2 === 0) ? rgb(0.12, 0.10, 0.09) : rgb(0.97, 0.95, 0.92)
           });
       } else if (file.type === 'word') {
-          // 1. Clean HTML and preserve line breaks (Keep your existing cleanup)
-          const formattedText = (file.previewHtml || "")
-            .replace(/<\/p>|<\/li>/gi, '\n\n')
-            .replace(/<br\s*\/?>|<\/tr>/gi, '\n')
-            .replace(/<\/td>/gi, '  ')
-            .replace(/<[^>]*>/g, '')
-            .replace(/&nbsp;/g, ' ')
-            .replace(/&amp;/g, '&')
-            .trim();
-
+          // 1. Setup a virtual container to parse the Word HTML
+          const container = document.createElement('div');
+          container.innerHTML = file.previewHtml || "";
+          
+          // 2. Constants for layout
           const fontSize = 11;
           const lineHeight = 14;
           const margin = 50;
           const maxWidth = 500;
-          // A4 height (841) minus margins (100) divided by lineHeight (14) = ~52 lines
-          const linesPerPage = 50; 
+          const pageHeight = 841.89;
+          const printableHeight = pageHeight - (margin * 2);
 
-          // 2. Break the text into wrapped lines (Keep your wrapping logic)
-          const paragraphs = formattedText.split('\n');
-          let allLines = [];
-          paragraphs.forEach(paragraph => {
-            if (paragraph.trim() === "") {
-              allLines.push(""); 
+          // 3. Prepare an array of "Content Objects" (Individual Lines or Images)
+          const allContentObjects = [];
+          // Select all block-level elements and images
+          const elements = Array.from(container.querySelectorAll('p, img, h1, h2, li, div'));
+
+          for (const el of elements) {
+            if (el.tagName === 'IMG') {
+              allContentObjects.push({ type: 'image', src: (el as HTMLImageElement).src, height: 160 });
             } else {
-              const words = paragraph.split(' ');
+              // TEXT WRAPPING LOGIC
+              const text = el.textContent?.trim() || "";
+              if (!text) continue;
+
+              const words = text.split(/\s+/);
               let currentLine = "";
+
               words.forEach(word => {
                 const testLine = currentLine ? `${currentLine} ${word}` : word;
-                if (font.widthOfTextAtSize(testLine, fontSize) < maxWidth) {
+                const width = font.widthOfTextAtSize(testLine, fontSize);
+                
+                if (width < maxWidth) {
                   currentLine = testLine;
                 } else {
-                  allLines.push(currentLine);
+                  // Push the line that fits and start a new one
+                  allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight });
                   currentLine = word;
                 }
               });
-              allLines.push(currentLine);
+              
+              // Push the very last line of this paragraph
+              // We add a small extra height (+5) to create a visual gap between paragraphs
+              allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight + 8 }); 
             }
-          });
-
-          // --- NEW: VIRTUAL PAGINATION LOGIC ---
-          
-          // 3. Group the lines into "Pages" (50 lines each)
-          const virtualPages = [];
-          for (let i = 0; i < allLines.length; i += linesPerPage) {
-            virtualPages.push(allLines.slice(i, i + linesPerPage));
           }
 
-          // 4. Determine which pages the user actually wants
-          // If 'custom' is selected, parse the range; otherwise, take all pages.
+          // 4. Sort Content Objects into Virtual Pages based on height
+          let virtualPages: any[][] = [[]];
+          let currentPageHeight = 0;
+          let pageIdx = 0;
+
+          for (const item of allContentObjects) {
+            // If the next item (line or image) exceeds the printable area, move to new page
+            if (currentPageHeight + item.height > printableHeight) {
+              virtualPages.push([]);
+              pageIdx++;
+              currentPageHeight = 0;
+            }
+            virtualPages[pageIdx].push(item);
+            currentPageHeight += item.height;
+          }
+
+          // 5. Determine which pages the user actually wants (Sidebar Sync)
           const allowedPages = (file.selectionType === 'custom' && file.pageSelection)
             ? parsePageRanges(file.pageSelection, virtualPages.length)
             : Array.from({ length: virtualPages.length }, (_, idx) => idx + 1);
 
-          // 5. Draw only the pages that are in the "Allowed" list
-          virtualPages.forEach((pageLines, index) => {
-            const pageNumber = index + 1;
-
-            if (allowedPages.includes(pageNumber)) {
+          // 6. Draw only the Allowed Pages
+          for (let i = 0; i < virtualPages.length; i++) {
+            if (allowedPages.includes(i + 1)) {
               const page = mergedPdf.addPage([595.28, 841.89]);
-              const { height } = page.getSize();
-              let currentY = height - margin;
+              let currentY = pageHeight - margin;
 
-              pageLines.forEach(line => {
-                if (line.trim() !== "") {
-                  page.drawText(line, {
+              for (const item of virtualPages[i]) {
+                if (item.type === 'image') {
+                  try {
+                    const imgData = await fetch(item.src).then(res => res.arrayBuffer());
+                    const image = item.src.includes('png') ? await mergedPdf.embedPng(imgData) : await mergedPdf.embedJpg(imgData);
+                    const dims = image.scaleToFit(maxWidth, 150);
+                    
+                    // Adjust currentY for the image height before drawing
+                    page.drawImage(image, {
+                      x: margin,
+                      y: currentY - dims.height,
+                      width: dims.width,
+                      height: dims.height,
+                    });
+                    currentY -= (dims.height + 15); // Space after image
+                  } catch (e) {
+                    console.error("Image export failed", e);
+                  }
+                } else if (item.content.trim()) {
+                  page.drawText(item.content, {
                     x: margin,
-                    y: currentY,
+                    y: currentY - fontSize, // Align text baseline
                     size: fontSize,
                     font: font,
                   });
+                  currentY -= lineHeight;
+                  
+                  // If this was the last line of a paragraph (indicated by the +8 height)
+                  // we subtract that extra space now
+                  if (item.height > lineHeight) {
+                    currentY -= 5; 
+                  }
                 }
-                currentY -= lineHeight;
-              });
+              }
             }
-          });
+          }
         } else {
           // --- PDF LOGIC ---
           // Use the rawFile directly instead of fetching the blob URL
