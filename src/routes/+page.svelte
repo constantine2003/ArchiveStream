@@ -2,20 +2,22 @@
   import { supabase } from '$lib/supabaseClient';
   import { onMount } from 'svelte';
   import { PDFDocument } from 'pdf-lib';
-
+  import  mammoth  from 'mammoth';
   // --- State Management ---
   type FileItem = {
-    id?: number | string;
+    id: number | string;
     name: string;
     url?: string;
     isEditing?: boolean;
     pageSelection?: string;
-    selectionType?: 'all' | 'custom';
+    selectionType: 'all' | 'custom';
     pageCount?: number;
-    type?: string; // Add optional type property
-    title?: string; // Add optional title property for chapters
+    type?: 'pdf' | 'word' | 'chapter'; // Refined type
+    previewHtml?: string; // New: for Word previews
+    rawFile?: File; // New: to keep the original for merging
+    title?: string; // For chapter pages
   };
-  
+    
   let files = $state<FileItem[]>([]);
     // --- Add Chapter/Separator Page ---
     function addChapter() {
@@ -167,37 +169,94 @@
 
   // --- Actions ---
   async function handleFiles(droppedFiles: File[]) {
-    const pdfs = droppedFiles.filter(f => f.type === 'application/pdf');
-    if (pdfs.length === 0) return;
+  // 1. Filter for supported types
+  const validFiles = droppedFiles.filter(f => 
+    f.type === 'application/pdf' || 
+    f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    f.name.endsWith('.docx') // Extra safety check
+  );
 
-    for (const file of pdfs) {
-      const { data, error } = await supabase
-        .from('document_queue')
-        .insert({ file_name: file.name, sort_order: files.length })
-        .select();
+  const newFilesToAppend = [];
 
-      if (!error && data) {
-        // Get page count for the PDF
-        let pageCount = 1;
-        try {
-          const arrayBuffer = await file.arrayBuffer();
-          const pdfDoc = await PDFDocument.load(arrayBuffer);
-          pageCount = pdfDoc.getPageCount();
-        } catch (e) {
-          pageCount = 1;
-        }
-        files = [...files, { 
-          id: data[0].id, 
-          name: file.name, 
-          url: URL.createObjectURL(file),
-          isEditing: false,
-          pageSelection: 'all',
-          selectionType: 'all',
-          pageCount
-        }];
+  for (const file of validFiles) {
+    const isWord = file.name.endsWith('.docx') || file.type.includes('wordprocessingml');
+    let previewHtml = "";
+    let pageCount = 1;
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      
+      if (isWord) {
+        // Use the imported mammoth, not window.mammoth
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        previewHtml = result.value;
+      } else {
+        const pdfDoc = await PDFDocument.load(arrayBuffer);
+        pageCount = pdfDoc.getPageCount();
       }
+
+      newFilesToAppend.push({ 
+        id: crypto.randomUUID(), 
+        name: file.name,
+        type: isWord ? 'word' : 'pdf',
+        url: !isWord ? URL.createObjectURL(file) : undefined,
+        previewHtml: previewHtml,
+        rawFile: file, 
+        selectionType: 'all',
+        pageCount,
+        title: isWord ? undefined : undefined // Ensure title property exists
+      });
+    } catch (e) {
+      console.error(`Error processing ${file.name}:`, e);
     }
   }
+
+    // 2. Update the state once at the end
+    files = [...files, ...newFilesToAppend];
+  }
+  async function generateCombinedPdf() {
+  try {
+    const { PDFDocument, StandardFonts } = await import('pdf-lib');
+    const combinedPdf = await PDFDocument.create();
+    const font = await combinedPdf.embedFont(StandardFonts.Helvetica);
+
+    // This loop goes through every item on your sidebar/canvas
+    for (const file of files) {
+      
+      // CASE A: It's a Word Document
+      if (file.type === 'word') {
+        const page = combinedPdf.addPage([595.28, 841.89]); // Create blank page
+        const text = file.previewHtml.replace(/<[^>]*>/g, ' '); // Strip HTML
+        page.drawText(text.substring(0, 1500), { x: 50, y: 800, size: 12, font });
+      } 
+      
+      // CASE B: It's a Chapter Separator
+      else if (file.type === 'chapter') {
+        const page = combinedPdf.addPage([595.28, 841.89]);
+        page.drawText(file.title || "New Section", { x: 200, y: 400, size: 24, font });
+      } 
+      
+      // CASE C: It's a PDF
+      else {
+        const arrayBuffer = await file.rawFile.arrayBuffer();
+        const pdfDoc = await PDFDocument.load(arrayBuffer);
+        const pages = await combinedPdf.copyPages(pdfDoc, pdfDoc.getPageIndices());
+        pages.forEach(p => combinedPdf.addPage(p));
+      }
+    }
+
+    // Trigger the Download
+    const pdfBytes = await combinedPdf.save();
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([pdfBytes], { type: 'application/pdf' }));
+    link.download = "ArchiveStream_Bundle.pdf";
+    link.click();
+
+  } catch (error) {
+    console.error("Export Error:", error);
+    alert("The export failed. Check the console!");
+  }
+}
   /**
    * Converts strings like "1, 3-5" into [1, 3, 4, 5]
    */
@@ -289,104 +348,152 @@
   }
 
   async function handleExport() {
-    if (files.length === 0 || isExporting) return;
-    try {
-      isExporting = true; showSuccess = false; exportProgress = 0;
-      const mergedPdf = await PDFDocument.create();
-      // Import StandardFonts and rgb from pdf-lib
-      const { StandardFonts, rgb } = await import('pdf-lib');
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        if ((file as any).type === 'chapter') {
-          // Insert a stylized chapter/separator page
-          const page = mergedPdf.addPage([600, 800]); // Portrait
+    if (files.length === 0 || isExporting) return;
+    try {
+      isExporting = true; showSuccess = false; exportProgress = 0;
+      const mergedPdf = await PDFDocument.create();
+      const { StandardFonts, rgb } = await import('pdf-lib');
+      const font = await mergedPdf.embedFont(StandardFonts.Helvetica);
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+
+        if (file.type === 'chapter') {
+          // --- CHAPTER LOGIC ---
+          const page = mergedPdf.addPage([600, 800]);
           const { width, height } = page.getSize();
-          const font = await mergedPdf.embedFont(StandardFonts.TimesRomanBold);
-          const fontSize = 32;
-          const title = (file as any).title || 'Section';
-          const textWidth = font.widthOfTextAtSize(title.toUpperCase(), fontSize);
-          // Draw background color (stone/amber aesthetic)
+          const fontBold = await mergedPdf.embedFont(StandardFonts.TimesRomanBold);
+          const title = typeof file.title === 'string' ? file.title : 'Section';
           page.drawRectangle({
             x: 0, y: 0, width, height,
-            color: (i % 2 === 0)
-              ? rgb(0.97, 0.95, 0.92) // light stone
-              : rgb(0.12, 0.10, 0.09) // dark stone
+            color: (i % 2 === 0) ? rgb(0.97, 0.95, 0.92) : rgb(0.12, 0.10, 0.09)
           });
-          // Draw "Section Break" label
-          const labelFont = await mergedPdf.embedFont(StandardFonts.TimesRomanBold);
-          page.drawText('SECTION BREAK', {
-            x: width / 2 - labelFont.widthOfTextAtSize('SECTION BREAK', 10) / 2,
-            y: height - 80,
-            size: 10,
-            font: labelFont,
-            color: rgb(0.85, 0.53, 0.13) // amber
-          });
-          // Draw the title centered
           page.drawText(title.toUpperCase(), {
-            x: (width - textWidth) / 2,
+            x: 50,
             y: height / 2,
-            size: fontSize,
-            font: font,
-            color: (i % 2 === 0)
-              ? rgb(0.12, 0.10, 0.09) // dark stone
-              : rgb(0.97, 0.95, 0.92) // light stone
+            size: 32,
+            font: fontBold,
+            color: (i % 2 === 0) ? rgb(0.12, 0.10, 0.09) : rgb(0.97, 0.95, 0.92)
+          });
+      } else if (file.type === 'word') {
+          // 1. Clean HTML and preserve line breaks
+          const formattedText = (file.previewHtml || "")
+            .replace(/<\/p>|<\/li>/gi, '\n\n')
+            .replace(/<br\s*\/?>|<\/tr>/gi, '\n')
+            .replace(/<\/td>/gi, '  ')
+            .replace(/<[^>]*>/g, '')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .trim();
+
+          const fontSize = 11;
+          const lineHeight = 14;
+          const margin = 50;
+          const maxWidth = 500;
+          
+          // 2. Break the text into wrapped lines based on the font width
+          // This ensures we know exactly how many lines we have before drawing
+          const paragraphs = formattedText.split('\n');
+          let allLines = [];
+          
+          paragraphs.forEach(paragraph => {
+            if (paragraph.trim() === "") {
+              allLines.push(""); // Preserve empty lines for spacing
+            } else {
+              const words = paragraph.split(' ');
+              let currentLine = "";
+              
+              words.forEach(word => {
+                const testLine = currentLine ? `${currentLine} ${word}` : word;
+                const width = font.widthOfTextAtSize(testLine, fontSize);
+                if (width < maxWidth) {
+                  currentLine = testLine;
+                } else {
+                  allLines.push(currentLine);
+                  currentLine = word;
+                }
+              });
+              allLines.push(currentLine);
+            }
+          });
+
+          // 3. Draw lines and create new pages when hitting the bottom
+          let currentPage = mergedPdf.addPage([595.28, 841.89]);
+          let { height } = currentPage.getSize();
+          let currentY = height - margin;
+
+          allLines.forEach(line => {
+            // Check if we need a new page (bottom margin check)
+            if (currentY < margin + lineHeight) {
+              currentPage = mergedPdf.addPage([595.28, 841.89]);
+              currentY = height - margin;
+            }
+
+            if (line.trim() !== "") {
+              currentPage.drawText(line, {
+                x: margin,
+                y: currentY,
+                size: fontSize,
+                font: font,
+              });
+            }
+            
+            currentY -= lineHeight; // Move cursor down for next line
           });
         } else {
-          // Existing PDF merging logic (copyPages)
-          const response = await fetch((file as any).url);
-          const pdfBytes = await response.arrayBuffer();
-          const pdf = await PDFDocument.load(pdfBytes);
-          const maxPages = pdf.getPageCount();
-          let indices: number[] = [];
-          if ((file as any).selectionType === 'custom' && (file as any).pageSelection && (file as any).pageSelection.trim() !== '') {
-            indices = parsePageRanges((file as any).pageSelection, maxPages).map(n => n - 1).filter(idx => idx >= 0 && idx < maxPages);
-          } else {
-            indices = Array.from({length: maxPages}, (_, idx) => idx);
-          }
-          if (indices.length > 0) {
-            const copiedPages = await mergedPdf.copyPages(pdf, indices);
-            copiedPages.forEach((page) => mergedPdf.addPage(page));
+          // --- PDF LOGIC ---
+          // Use the rawFile directly instead of fetching the blob URL
+          if (file.rawFile) {
+            const pdfBytes = await file.rawFile.arrayBuffer();
+            const pdf = await PDFDocument.load(pdfBytes);
+            const maxPages = pdf.getPageCount();
+            let indices: number[] = [];
+            if (file.selectionType === 'custom' && file.pageSelection) {
+              indices = parsePageRanges(file.pageSelection, maxPages).map(n => n - 1);
+            } else {
+              indices = Array.from({length: maxPages}, (_, idx) => idx);
+            }
+            if (indices.length > 0) {
+              const copiedPages = await mergedPdf.copyPages(pdf, indices);
+              copiedPages.forEach((page) => mergedPdf.addPage(page));
+            }
           }
         }
-        exportProgress = Math.round(((i + 1) / files.length) * 100);
-      }
+        exportProgress = Math.round(((i + 1) / files.length) * 100);
+      }
 
-      // Optimize images and metadata if enabled
       await optimizeMetadataAndImages(mergedPdf, compressEnabled);
-
-      // Save with object streams for compression
       const mergedPdfBytes = await mergedPdf.save({ useObjectStreams: compressEnabled });
-      // Fix: Always convert to ArrayBuffer for Blob compatibility
-      const arrayBuffer = mergedPdfBytes instanceof ArrayBuffer ? mergedPdfBytes : new Uint8Array(mergedPdfBytes).buffer;
-      const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
+      // Ensure mergedPdfBytes is ArrayBuffer or Uint8Array
+      let blob: Blob;
+      if (mergedPdfBytes instanceof Uint8Array || mergedPdfBytes instanceof ArrayBuffer) {
+        blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
+      } else {
+        blob = new Blob([new Uint8Array(mergedPdfBytes)], { type: 'application/pdf' });
+      }
       const exportUrl = URL.createObjectURL(blob);
       const fileName = `ArchiveStream_${Date.now()}.pdf`;
-
       const link = document.createElement('a');
       link.href = exportUrl;
       link.download = fileName;
       link.click();
 
-      exportHistory = [{
-        name: fileName,
-        date: new Date().toLocaleDateString(undefined, { 
-          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
-        }),
-        url: exportUrl
-      }, ...exportHistory].slice(0, 5);
+      exportHistory = [{
+        name: fileName,
+        date: new Date().toLocaleDateString(undefined, { 
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+        }),
+        url: exportUrl
+      }, ...exportHistory].slice(0, 5);
 
-      showSuccess = true;
-      setTimeout(() => { 
-        isExporting = false; 
-        showSuccess = false; 
-        exportProgress = 0; 
-      }, 2500);
-    } catch (err) {
-      console.error("Export Failed:", err);
-      alert("Error combining documents.");
-      isExporting = false;
-    }
-  }
+      showSuccess = true;
+      setTimeout(() => { isExporting = false; showSuccess = false; }, 2500);
+    } catch (err) {
+      console.error("Export Failed:", err);
+      alert("Error combining documents. Check console.");
+      isExporting = false;
+    }
+  }
 </script>
 
 {#if menuVisible}
@@ -634,6 +741,62 @@
                         Remove Chapter
                       </button>
                     </div>
+                  </div>
+                </section>
+              {:else if file.type === 'word'}
+                <section 
+                  id={file.id ? String(file.id) : ''} 
+                  class="group transition-all duration-300 {activeFileId === String(file.id) ? (isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-4 mb-4 px-4 py-3 bg-stone-50 {isDark ? 'bg-stone-900/50' : 'bg-stone-50'} rounded-lg border {isDark ? 'border-stone-800' : 'border-stone-200'}">
+                    <div class="flex items-center gap-3">
+                      <span class="text-[10px] font-black uppercase tracking-tighter {isDark ? 'text-stone-400' : 'text-stone-500'}">Scope:</span>
+                      <div class="flex bg-stone-200 {isDark ? 'bg-stone-800' : 'bg-stone-200'} p-1 rounded-md">
+                        <button 
+                          onclick={() => { 
+                            file.selectionType = 'all'; 
+                            if ('pageSelection' in file) file.pageSelection = 'all'; 
+                          }}
+                          class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType !== 'custom' ? (isDark ? 'bg-stone-700 text-white' : 'bg-white text-stone-900 shadow-sm') : 'text-stone-500'}">
+                          ALL
+                        </button>
+                        <button 
+                          onclick={() => { 
+                            file.selectionType = 'custom'; 
+                            if ('pageSelection' in file) {
+                              if (!file.pageSelection || file.pageSelection === 'all') file.pageSelection = '';
+                            }
+                          }}
+                          class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType === 'custom' ? (isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white shadow-sm') : 'text-stone-500'}">
+                          CUSTOM
+                        </button>
+                      </div>
+                    </div>
+                    {#if file.selectionType === 'custom'}
+                      <div class="flex-1 max-w-xs relative">
+                        <input 
+                          type="text" 
+                          placeholder="e.g. 1, 3-5, 10" 
+                          bind:value={file.pageSelection}
+                          class="w-full pl-3 pr-10 py-1.5 text-xs font-mono bg-transparent border-b-2 {isDark ? 'border-stone-700 focus:border-amber-500' : 'border-stone-300 focus:border-stone-900'} outline-none transition-colors"
+                        />
+                        <span class="absolute right-0 top-1.5 text-[9px] font-bold {isDark ? 'text-stone-600' : 'text-stone-400'}">
+                          PG. RANGE
+                        </span>
+                      </div>
+                    {/if}
+                    <div class="text-[10px] font-bold {isDark ? 'text-amber-500' : 'text-stone-400'}">
+                      {file.selectionType === 'custom' ? 'PARTIAL EXPORT' : 'FULL DOCUMENT'}
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-4 mb-4 px-2 md:px-0">
+                    <span class="text-[10px] font-bold {isDark ? 'text-stone-500' : 'text-stone-400'} uppercase tracking-[0.2em]">
+                      {file.name}
+                    </span>
+                    <div class="h-px flex-1 {isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
+                  </div>
+                  <div class="bg-white rounded-xl shadow-2xl p-8 md:p-16 prose prose-stone">
+                    {@html file.previewHtml}
                   </div>
                 </section>
               {:else}
