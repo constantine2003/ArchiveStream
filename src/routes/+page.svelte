@@ -2,6 +2,7 @@
   import { supabase } from '$lib/supabaseClient';
   import { onMount } from 'svelte';
   import { PDFDocument } from 'pdf-lib';
+  import { rgb, degrees, StandardFonts } from 'pdf-lib';
   import  mammoth  from 'mammoth';
   // --- State Management ---
   type FileItem = {
@@ -348,56 +349,63 @@
   }
 
   async function handleExport() {
-    if (files.length === 0 || isExporting) return;
-    try {
-      isExporting = true; showSuccess = false; exportProgress = 0;
-      const mergedPdf = await PDFDocument.create();
-      const { StandardFonts, rgb } = await import('pdf-lib');
-      const font = await mergedPdf.embedFont(StandardFonts.Helvetica);
+    if (files.length === 0 || isExporting) return;
+    try {
+      isExporting = true;
+      showSuccess = false;
+      exportProgress = 0;
 
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+      const { PDFDocument, rgb, degrees, StandardFonts } = await import('pdf-lib');
+      const mergedPdf = await PDFDocument.create();
+      
+      // Embed fonts once outside the loop for performance
+      const font = await mergedPdf.embedFont(StandardFonts.Helvetica);
+      const fontBold = await mergedPdf.embedFont(StandardFonts.HelveticaBold);
+      const fontChapter = await mergedPdf.embedFont(StandardFonts.TimesRomanBold);
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
 
         if (file.type === 'chapter') {
           // --- CHAPTER LOGIC ---
           const page = mergedPdf.addPage([600, 800]);
           const { width, height } = page.getSize();
-          const fontBold = await mergedPdf.embedFont(StandardFonts.TimesRomanBold);
           const title = typeof file.title === 'string' ? file.title : 'Section';
+          
           page.drawRectangle({
             x: 0, y: 0, width, height,
             color: (i % 2 === 0) ? rgb(0.97, 0.95, 0.92) : rgb(0.12, 0.10, 0.09)
           });
+
           page.drawText(title.toUpperCase(), {
             x: 50,
             y: height / 2,
             size: 32,
-            font: fontBold,
+            font: fontChapter,
             color: (i % 2 === 0) ? rgb(0.12, 0.10, 0.09) : rgb(0.97, 0.95, 0.92)
           });
-      } else if (file.type === 'word') {
-          // 1. Setup a virtual container to parse the Word HTML
+
+        } else if (file.type === 'word') {
+          // --- WORD/HTML LOGIC (PHASE 4 EXPANSION) ---
           const container = document.createElement('div');
           container.innerHTML = file.previewHtml || "";
           
-          // 2. Constants for layout
+          // Layout Constants - Adjusted for better visual density
           const fontSize = 11;
-          const lineHeight = 14;
+          const lineHeight = 16; // Increased from 14 for better breathing room
           const margin = 50;
-          const maxWidth = 500;
-          const pageHeight = 841.89;
+          const pageHeight = 841.89; 
+          const pageWidth = 595.28; // Standard A4
+          const maxWidth = pageWidth - (margin * 2);
           const printableHeight = pageHeight - (margin * 2);
 
-          // 3. Prepare an array of "Content Objects" (Individual Lines or Images)
           const allContentObjects = [];
-          // Select all block-level elements and images
           const elements = Array.from(container.querySelectorAll('p, img, h1, h2, li, div'));
 
           for (const el of elements) {
             if (el.tagName === 'IMG') {
               allContentObjects.push({ type: 'image', src: (el as HTMLImageElement).src, height: 160 });
             } else {
-              // TEXT WRAPPING LOGIC
               const text = el.textContent?.trim() || "";
               if (!text) continue;
 
@@ -411,25 +419,21 @@
                 if (width < maxWidth) {
                   currentLine = testLine;
                 } else {
-                  // Push the line that fits and start a new one
                   allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight });
                   currentLine = word;
                 }
               });
-              
-              // Push the very last line of this paragraph
-              // We add a small extra height (+5) to create a visual gap between paragraphs
-              allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight + 8 }); 
+              // End of paragraph spacing (lineHeight + gap)
+              allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight + 10 }); 
             }
           }
 
-          // 4. Sort Content Objects into Virtual Pages based on height
+          // Virtual Pagination
           let virtualPages: any[][] = [[]];
           let currentPageHeight = 0;
           let pageIdx = 0;
 
           for (const item of allContentObjects) {
-            // If the next item (line or image) exceeds the printable area, move to new page
             if (currentPageHeight + item.height > printableHeight) {
               virtualPages.push([]);
               pageIdx++;
@@ -439,107 +443,152 @@
             currentPageHeight += item.height;
           }
 
-          // 5. Determine which pages the user actually wants (Sidebar Sync)
+          // Selection Logic (Sidebar Sync)
           const allowedPages = (file.selectionType === 'custom' && file.pageSelection)
             ? parsePageRanges(file.pageSelection, virtualPages.length)
             : Array.from({ length: virtualPages.length }, (_, idx) => idx + 1);
 
-          // 6. Draw only the Allowed Pages
-          for (let i = 0; i < virtualPages.length; i++) {
-            if (allowedPages.includes(i + 1)) {
-              const page = mergedPdf.addPage([595.28, 841.89]);
+          // Drawing
+          for (let j = 0; j < virtualPages.length; j++) {
+            if (allowedPages.includes(j + 1)) {
+              const page = mergedPdf.addPage([pageWidth, pageHeight]);
               let currentY = pageHeight - margin;
 
-              for (const item of virtualPages[i]) {
+              for (const item of virtualPages[j]) {
                 if (item.type === 'image') {
                   try {
                     const imgData = await fetch(item.src).then(res => res.arrayBuffer());
                     const image = item.src.includes('png') ? await mergedPdf.embedPng(imgData) : await mergedPdf.embedJpg(imgData);
                     const dims = image.scaleToFit(maxWidth, 150);
                     
-                    // Adjust currentY for the image height before drawing
                     page.drawImage(image, {
                       x: margin,
                       y: currentY - dims.height,
                       width: dims.width,
                       height: dims.height,
                     });
-                    currentY -= (dims.height + 15); // Space after image
+                    currentY -= (dims.height + 20); 
                   } catch (e) {
                     console.error("Image export failed", e);
                   }
                 } else if (item.content.trim()) {
                   page.drawText(item.content, {
                     x: margin,
-                    y: currentY - fontSize, // Align text baseline
+                    y: currentY - fontSize, // Anchor to baseline
                     size: fontSize,
                     font: font,
                   });
-                  currentY -= lineHeight;
-                  
-                  // If this was the last line of a paragraph (indicated by the +8 height)
-                  // we subtract that extra space now
-                  if (item.height > lineHeight) {
-                    currentY -= 5; 
-                  }
+                  currentY -= (item.height > lineHeight) ? item.height : lineHeight;
                 }
               }
             }
           }
+
         } else {
           // --- PDF LOGIC ---
-          // Use the rawFile directly instead of fetching the blob URL
           if (file.rawFile) {
             const pdfBytes = await file.rawFile.arrayBuffer();
             const pdf = await PDFDocument.load(pdfBytes);
             const maxPages = pdf.getPageCount();
             let indices: number[] = [];
+
             if (file.selectionType === 'custom' && file.pageSelection) {
               indices = parsePageRanges(file.pageSelection, maxPages).map(n => n - 1);
             } else {
               indices = Array.from({length: maxPages}, (_, idx) => idx);
             }
+
             if (indices.length > 0) {
               const copiedPages = await mergedPdf.copyPages(pdf, indices);
               copiedPages.forEach((page) => mergedPdf.addPage(page));
             }
           }
         }
-        exportProgress = Math.round(((i + 1) / files.length) * 100);
-      }
+        exportProgress = Math.round(((i + 1) / files.length) * 100);
+      }
 
+      // --- PHASE 5: WATERMARK OVERLAYS ---
+      if (activeWatermark !== 'NONE') {
+        const style = watermarkStyles[activeWatermark];
+        const watermarkFont = fontBold;
+        const pages = mergedPdf.getPages();
+
+        pages.forEach((page) => {
+          const { width, height } = page.getSize();
+          page.drawText(style.text, {
+            x: width / 4,
+            y: height / 3,
+            size: 70,
+            font: watermarkFont,
+            color: rgb(0.5, 0.5, 0.5), 
+            rotate: degrees(45),
+            opacity: style.opacity || 0.3,
+          });
+        });
+      }
+
+      // --- FINAL EXPORT & DOWNLOAD ---
       await optimizeMetadataAndImages(mergedPdf, compressEnabled);
       const mergedPdfBytes = await mergedPdf.save({ useObjectStreams: compressEnabled });
-      // Ensure mergedPdfBytes is ArrayBuffer or Uint8Array
-      let blob: Blob;
-      if (mergedPdfBytes instanceof Uint8Array || mergedPdfBytes instanceof ArrayBuffer) {
-        blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
-      } else {
-        blob = new Blob([new Uint8Array(mergedPdfBytes)], { type: 'application/pdf' });
-      }
+      
+      const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
       const exportUrl = URL.createObjectURL(blob);
       const fileName = `ArchiveStream_${Date.now()}.pdf`;
+      
       const link = document.createElement('a');
       link.href = exportUrl;
       link.download = fileName;
       link.click();
 
-       exportHistory = [{
-        name: fileName,
-        date: new Date().toLocaleDateString(undefined, { 
-          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
-        }),
-        url: exportUrl
-      }, ...exportHistory].slice(0, 5);
+      // Update Local History (Phase 3 Optimization)
+      exportHistory = [{
+        name: fileName,
+        date: new Date().toLocaleDateString(undefined, { 
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+        }),
+        url: exportUrl
+      }, ...exportHistory].slice(0, 5);
 
-      showSuccess = true;
-      setTimeout(() => { isExporting = false; showSuccess = false; }, 2500);
-    } catch (err) {
-      console.error("Export Failed:", err);
-      alert("Error combining documents. Check console.");
-      isExporting = false;
-    }
-  }
+      showSuccess = true;
+      setTimeout(() => { isExporting = false; showSuccess = false; }, 2500);
+
+    } catch (err) {
+      console.error("Export Failed:", err);
+      alert("Error combining documents. Check console.");
+      isExporting = false;
+    }
+  }
+  // Define our available watermark types
+  type WatermarkType = 'NONE' | 'DRAFT' | 'CONFIDENTIAL' | 'APPROVED';
+
+  let activeWatermark = $state<WatermarkType>('NONE');
+
+  const watermarkStyles = {
+      DRAFT: { text: 'DRAFT', color: 'rgb(0.7, 0.7, 0.7)', opacity: 0.3 },
+      CONFIDENTIAL: { text: 'CONFIDENTIAL', color: 'rgb(0.8, 0.2, 0.2)', opacity: 0.5 },
+      APPROVED: { text: 'APPROVED', color: 'rgb(0.2, 0.6, 0.2)', opacity: 0.3 }
+  };
+  async function applyWatermarks(pdfDoc: PDFDocument) {
+    if (activeWatermark === 'NONE') return;
+
+    const style = watermarkStyles[activeWatermark];
+    const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const pages = pdfDoc.getPages();
+
+    pages.forEach((page) => {
+        const { width, height } = page.getSize();
+        
+        page.drawText(style.text, {
+            x: width / 4,
+            y: height / 3,
+            size: 80,
+            font: font,
+            color: rgb(0.5, 0.5, 0.5), // Subtle gray
+            rotate: degrees(45),
+            opacity: style.opacity,
+        });
+    });
+  }
 </script>
 
 {#if menuVisible}
@@ -725,6 +774,24 @@
         </div>
       {/if}
     </div>
+    
+    <div class="px-4 py-6 border-t {isDark ? 'border-stone-800' : 'border-stone-100'}">
+      <p class="text-[10px] font-bold text-stone-500 uppercase tracking-widest mb-4">Template Overlays</p>
+  
+        <div class="grid grid-cols-2 gap-2">
+        {#each ['NONE', 'DRAFT', 'CONFIDENTIAL', 'APPROVED'] as type}
+          <button 
+          onclick={() => activeWatermark = type}
+          class="py-2 px-1 rounded-lg border text-[9px] font-black uppercase tracking-tighter transition-all
+          {activeWatermark === type 
+          ? 'bg-amber-600 border-amber-600 text-white shadow-lg shadow-amber-900/20' 
+          : (isDark ? 'bg-stone-900 border-stone-800 text-stone-500 hover:border-stone-600' : 'bg-white border-stone-200 text-stone-400 hover:border-stone-300')}"
+          >
+            {type}
+          </button>
+        {/each}
+        </div>
+      </div>
 
     <div class="p-4 md:p-6">
       <button onclick={() => fileInput.click()} class="w-full py-3 {isDark ? 'bg-stone-900 hover:bg-stone-800 text-stone-200 border-stone-800' : 'bg-white hover:bg-stone-50 text-stone-900 border-stone-200'} rounded-xl text-[10px] uppercase tracking-widest font-bold border transition-all">
