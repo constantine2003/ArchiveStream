@@ -2,20 +2,21 @@
   import { supabase } from '$lib/supabaseClient';
   import { onMount } from 'svelte';
   import { PDFDocument } from 'pdf-lib';
-
+  import  mammoth  from 'mammoth';
   // --- State Management ---
   type FileItem = {
-    id?: number | string;
+    id: number | string;
     name: string;
     url?: string;
     isEditing?: boolean;
     pageSelection?: string;
-    selectionType?: 'all' | 'custom';
+    selectionType: 'all' | 'custom';
     pageCount?: number;
-    type?: string; // Add optional type property
-    title?: string; // Add optional title property for chapters
+    type?: 'pdf' | 'word' | 'chapter'; // Refined type
+    previewHtml?: string; // New: for Word previews
+    rawFile?: File; // New: to keep the original for merging
   };
-  
+    
   let files = $state<FileItem[]>([]);
     // --- Add Chapter/Separator Page ---
     function addChapter() {
@@ -167,37 +168,50 @@
 
   // --- Actions ---
   async function handleFiles(droppedFiles: File[]) {
-    const pdfs = droppedFiles.filter(f => f.type === 'application/pdf');
-    if (pdfs.length === 0) return;
+  // 1. Filter for supported types
+  const validFiles = droppedFiles.filter(f => 
+    f.type === 'application/pdf' || 
+    f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    f.name.endsWith('.docx') // Extra safety check
+  );
 
-    for (const file of pdfs) {
-      const { data, error } = await supabase
-        .from('document_queue')
-        .insert({ file_name: file.name, sort_order: files.length })
-        .select();
+  const newFilesToAppend = [];
 
-      if (!error && data) {
-        // Get page count for the PDF
-        let pageCount = 1;
-        try {
-          const arrayBuffer = await file.arrayBuffer();
-          const pdfDoc = await PDFDocument.load(arrayBuffer);
-          pageCount = pdfDoc.getPageCount();
-        } catch (e) {
-          pageCount = 1;
-        }
-        files = [...files, { 
-          id: data[0].id, 
-          name: file.name, 
-          url: URL.createObjectURL(file),
-          isEditing: false,
-          pageSelection: 'all',
-          selectionType: 'all',
-          pageCount
-        }];
+  for (const file of validFiles) {
+    const isWord = file.name.endsWith('.docx') || file.type.includes('wordprocessingml');
+    let previewHtml = "";
+    let pageCount = 1;
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      
+      if (isWord) {
+        // Use the imported mammoth, not window.mammoth
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        previewHtml = result.value;
+      } else {
+        const pdfDoc = await PDFDocument.load(arrayBuffer);
+        pageCount = pdfDoc.getPageCount();
       }
+
+      newFilesToAppend.push({ 
+        id: crypto.randomUUID(), 
+        name: file.name,
+        type: isWord ? 'word' : 'pdf',
+        url: !isWord ? URL.createObjectURL(file) : undefined,
+        previewHtml: previewHtml,
+        rawFile: file, 
+        selectionType: 'all',
+        pageCount
+      });
+    } catch (e) {
+      console.error(`Error processing ${file.name}:`, e);
     }
   }
+
+  // 2. Update the state once at the end
+  files = [...files, ...newFilesToAppend];
+}
   /**
    * Converts strings like "1, 3-5" into [1, 3, 4, 5]
    */
@@ -634,6 +648,62 @@
                         Remove Chapter
                       </button>
                     </div>
+                  </div>
+                </section>
+              {:else if file.type === 'word'}
+                <section 
+                  id={file.id ? String(file.id) : ''} 
+                  class="group transition-all duration-300 {activeFileId === String(file.id) ? (isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-4 mb-4 px-4 py-3 bg-stone-50 {isDark ? 'bg-stone-900/50' : 'bg-stone-50'} rounded-lg border {isDark ? 'border-stone-800' : 'border-stone-200'}">
+                    <div class="flex items-center gap-3">
+                      <span class="text-[10px] font-black uppercase tracking-tighter {isDark ? 'text-stone-400' : 'text-stone-500'}">Scope:</span>
+                      <div class="flex bg-stone-200 {isDark ? 'bg-stone-800' : 'bg-stone-200'} p-1 rounded-md">
+                        <button 
+                          onclick={() => { 
+                            file.selectionType = 'all'; 
+                            if ('pageSelection' in file) file.pageSelection = 'all'; 
+                          }}
+                          class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType !== 'custom' ? (isDark ? 'bg-stone-700 text-white' : 'bg-white text-stone-900 shadow-sm') : 'text-stone-500'}">
+                          ALL
+                        </button>
+                        <button 
+                          onclick={() => { 
+                            file.selectionType = 'custom'; 
+                            if ('pageSelection' in file) {
+                              if (!file.pageSelection || file.pageSelection === 'all') file.pageSelection = '';
+                            }
+                          }}
+                          class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType === 'custom' ? (isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white shadow-sm') : 'text-stone-500'}">
+                          CUSTOM
+                        </button>
+                      </div>
+                    </div>
+                    {#if file.selectionType === 'custom'}
+                      <div class="flex-1 max-w-xs relative">
+                        <input 
+                          type="text" 
+                          placeholder="e.g. 1, 3-5, 10" 
+                          bind:value={file.pageSelection}
+                          class="w-full pl-3 pr-10 py-1.5 text-xs font-mono bg-transparent border-b-2 {isDark ? 'border-stone-700 focus:border-amber-500' : 'border-stone-300 focus:border-stone-900'} outline-none transition-colors"
+                        />
+                        <span class="absolute right-0 top-1.5 text-[9px] font-bold {isDark ? 'text-stone-600' : 'text-stone-400'}">
+                          PG. RANGE
+                        </span>
+                      </div>
+                    {/if}
+                    <div class="text-[10px] font-bold {isDark ? 'text-amber-500' : 'text-stone-400'}">
+                      {file.selectionType === 'custom' ? 'PARTIAL EXPORT' : 'FULL DOCUMENT'}
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-4 mb-4 px-2 md:px-0">
+                    <span class="text-[10px] font-bold {isDark ? 'text-stone-500' : 'text-stone-400'} uppercase tracking-[0.2em]">
+                      {file.name}
+                    </span>
+                    <div class="h-px flex-1 {isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
+                  </div>
+                  <div class="bg-white rounded-xl shadow-2xl p-8 md:p-16 prose prose-stone">
+                    {@html file.previewHtml}
                   </div>
                 </section>
               {:else}
