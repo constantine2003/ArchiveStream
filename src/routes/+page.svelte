@@ -375,26 +375,71 @@
             font: fontBold,
             color: (i % 2 === 0) ? rgb(0.12, 0.10, 0.09) : rgb(0.97, 0.95, 0.92)
           });
-        } else if (file.type === 'word') {
-  // --- WORD LOGIC (The Fixed Line-Break Version) ---
-  const page = mergedPdf.addPage([595.28, 841.89]);
-  const { height } = page.getSize();
-  
-  // 1. Replace block tags with newlines before stripping remaining HTML
-  const formattedText = (file.previewHtml || "")
-    .replace(/<\/p>|<\/div>|<br\s*\/?>/gi, '\n') // Turn closures/breaks into newlines
-    .replace(/<[^>]*>/g, '')                      // Strip remaining tags
-    .replace(/&nbsp;/g, ' ');                     // Fix non-breaking spaces
+      } else if (file.type === 'word') {
+          // 1. Clean HTML and preserve line breaks
+          const formattedText = (file.previewHtml || "")
+            .replace(/<\/p>|<\/li>/gi, '\n\n')
+            .replace(/<br\s*\/?>|<\/tr>/gi, '\n')
+            .replace(/<\/td>/gi, '  ')
+            .replace(/<[^>]*>/g, '')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .trim();
 
-  // 2. Draw the text (using maxWidth helps with automatic wrapping)
-  page.drawText(formattedText.substring(0, 3000), {
-    x: 50,
-    y: height - 50,
-    size: 11,
-    font: font,
-    maxWidth: 500,
-    lineHeight: 14 // Ensures vertical spacing between lines
-  });
+          const fontSize = 11;
+          const lineHeight = 14;
+          const margin = 50;
+          const maxWidth = 500;
+          
+          // 2. Break the text into wrapped lines based on the font width
+          // This ensures we know exactly how many lines we have before drawing
+          const paragraphs = formattedText.split('\n');
+          let allLines = [];
+          
+          paragraphs.forEach(paragraph => {
+            if (paragraph.trim() === "") {
+              allLines.push(""); // Preserve empty lines for spacing
+            } else {
+              const words = paragraph.split(' ');
+              let currentLine = "";
+              
+              words.forEach(word => {
+                const testLine = currentLine ? `${currentLine} ${word}` : word;
+                const width = font.widthOfTextAtSize(testLine, fontSize);
+                if (width < maxWidth) {
+                  currentLine = testLine;
+                } else {
+                  allLines.push(currentLine);
+                  currentLine = word;
+                }
+              });
+              allLines.push(currentLine);
+            }
+          });
+
+          // 3. Draw lines and create new pages when hitting the bottom
+          let currentPage = mergedPdf.addPage([595.28, 841.89]);
+          let { height } = currentPage.getSize();
+          let currentY = height - margin;
+
+          allLines.forEach(line => {
+            // Check if we need a new page (bottom margin check)
+            if (currentY < margin + lineHeight) {
+              currentPage = mergedPdf.addPage([595.28, 841.89]);
+              currentY = height - margin;
+            }
+
+            if (line.trim() !== "") {
+              currentPage.drawText(line, {
+                x: margin,
+                y: currentY,
+                size: fontSize,
+                font: font,
+              });
+            }
+            
+            currentY -= lineHeight; // Move cursor down for next line
+          });
         } else {
           // --- PDF LOGIC ---
           // Use the rawFile directly instead of fetching the blob URL
