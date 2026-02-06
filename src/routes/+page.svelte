@@ -376,7 +376,7 @@
             color: (i % 2 === 0) ? rgb(0.12, 0.10, 0.09) : rgb(0.97, 0.95, 0.92)
           });
       } else if (file.type === 'word') {
-          // 1. Clean HTML and preserve line breaks
+          // 1. Clean HTML and preserve line breaks (Keep your existing cleanup)
           const formattedText = (file.previewHtml || "")
             .replace(/<\/p>|<\/li>/gi, '\n\n')
             .replace(/<br\s*\/?>|<\/tr>/gi, '\n')
@@ -390,23 +390,21 @@
           const lineHeight = 14;
           const margin = 50;
           const maxWidth = 500;
-          
-          // 2. Break the text into wrapped lines based on the font width
-          // This ensures we know exactly how many lines we have before drawing
+          // A4 height (841) minus margins (100) divided by lineHeight (14) = ~52 lines
+          const linesPerPage = 50; 
+
+          // 2. Break the text into wrapped lines (Keep your wrapping logic)
           const paragraphs = formattedText.split('\n');
           let allLines = [];
-          
           paragraphs.forEach(paragraph => {
             if (paragraph.trim() === "") {
-              allLines.push(""); // Preserve empty lines for spacing
+              allLines.push(""); 
             } else {
               const words = paragraph.split(' ');
               let currentLine = "";
-              
               words.forEach(word => {
                 const testLine = currentLine ? `${currentLine} ${word}` : word;
-                const width = font.widthOfTextAtSize(testLine, fontSize);
-                if (width < maxWidth) {
+                if (font.widthOfTextAtSize(testLine, fontSize) < maxWidth) {
                   currentLine = testLine;
                 } else {
                   allLines.push(currentLine);
@@ -417,28 +415,41 @@
             }
           });
 
-          // 3. Draw lines and create new pages when hitting the bottom
-          let currentPage = mergedPdf.addPage([595.28, 841.89]);
-          let { height } = currentPage.getSize();
-          let currentY = height - margin;
+          // --- NEW: VIRTUAL PAGINATION LOGIC ---
+          
+          // 3. Group the lines into "Pages" (50 lines each)
+          const virtualPages = [];
+          for (let i = 0; i < allLines.length; i += linesPerPage) {
+            virtualPages.push(allLines.slice(i, i + linesPerPage));
+          }
 
-          allLines.forEach(line => {
-            // Check if we need a new page (bottom margin check)
-            if (currentY < margin + lineHeight) {
-              currentPage = mergedPdf.addPage([595.28, 841.89]);
-              currentY = height - margin;
-            }
+          // 4. Determine which pages the user actually wants
+          // If 'custom' is selected, parse the range; otherwise, take all pages.
+          const allowedPages = (file.selectionType === 'custom' && file.pageSelection)
+            ? parsePageRanges(file.pageSelection, virtualPages.length)
+            : Array.from({ length: virtualPages.length }, (_, idx) => idx + 1);
 
-            if (line.trim() !== "") {
-              currentPage.drawText(line, {
-                x: margin,
-                y: currentY,
-                size: fontSize,
-                font: font,
+          // 5. Draw only the pages that are in the "Allowed" list
+          virtualPages.forEach((pageLines, index) => {
+            const pageNumber = index + 1;
+
+            if (allowedPages.includes(pageNumber)) {
+              const page = mergedPdf.addPage([595.28, 841.89]);
+              const { height } = page.getSize();
+              let currentY = height - margin;
+
+              pageLines.forEach(line => {
+                if (line.trim() !== "") {
+                  page.drawText(line, {
+                    x: margin,
+                    y: currentY,
+                    size: fontSize,
+                    font: font,
+                  });
+                }
+                currentY -= lineHeight;
               });
             }
-            
-            currentY -= lineHeight; // Move cursor down for next line
           });
         } else {
           // --- PDF LOGIC ---
@@ -478,7 +489,7 @@
       link.download = fileName;
       link.click();
 
-      exportHistory = [{
+       exportHistory = [{
         name: fileName,
         date: new Date().toLocaleDateString(undefined, { 
           month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
