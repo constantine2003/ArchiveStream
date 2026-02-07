@@ -360,14 +360,24 @@
       const mergedPdf = await PDFDocument.create();
       
       // --- PHASE 6: DYNAMIC THEME SETUP ---
-      // Convert theme colors to pdf-lib rgb format
-      const themePrimary = rgb(globalTheme.primaryColor.r, globalTheme.primaryColor.g, globalTheme.primaryColor.b);
-      const themeAccent = rgb(globalTheme.accentColor.r, globalTheme.accentColor.g, globalTheme.accentColor.b);
+      // Helper to ensure colors are 0-1 range (prevents pdf-lib crashes)
+      const norm = (val) => (val > 1 ? val / 255 : val);
+      
+      const themePrimary = rgb(
+        norm(globalTheme.primaryColor.r), 
+        norm(globalTheme.primaryColor.g), 
+        norm(globalTheme.primaryColor.b)
+      );
+      const themeAccent = rgb(
+        norm(globalTheme.accentColor.r), 
+        norm(globalTheme.accentColor.g), 
+        norm(globalTheme.accentColor.b)
+      );
 
       // Embed fonts dynamically based on the globalTheme object
-      const font = await mergedPdf.embedFont(StandardFonts[globalTheme.fontFamily]);
-      const fontBold = await mergedPdf.embedFont(StandardFonts[globalTheme.fontFamily + 'Bold']);
-      // Chapter font now matches the theme's bold style for consistency
+      const fontName = globalTheme.fontFamily || 'Helvetica';
+      const font = await mergedPdf.embedFont(StandardFonts[fontName]);
+      const fontBold = await mergedPdf.embedFont(StandardFonts[`${fontName}Bold`] || StandardFonts.HelveticaBold);
       const fontChapter = fontBold;
 
       for (let i = 0; i < files.length; i++) {
@@ -381,16 +391,14 @@
           
           page.drawRectangle({
             x: 0, y: 0, width, height,
-            // Uses theme colors instead of hardcoded numbers
             color: (i % 2 === 0) ? themeAccent : themePrimary
           });
 
           page.drawText(title.toUpperCase(), {
             x: 50,
             y: height / 2,
-            size: globalTheme.chapterFontSize, // Controlled by theme
+            size: globalTheme.chapterFontSize || 32,
             font: fontChapter,
-            // Text color flips to ensure readability against the background
             color: (i % 2 === 0) ? themePrimary : themeAccent
           });
 
@@ -399,12 +407,11 @@
           const container = document.createElement('div');
           container.innerHTML = file.previewHtml || "";
           
-          // Layout Constants - Now pulled from globalTheme
-          const fontSize = globalTheme.bodyFontSize;
-          const lineHeight = globalTheme.lineHeight; 
+          const fontSize = globalTheme.bodyFontSize || 11;
+          const lineHeight = globalTheme.lineHeight || 16; 
           const margin = 50;
           const pageHeight = 841.89; 
-          const pageWidth = 595.28; // Standard A4
+          const pageWidth = 595.28; 
           const maxWidth = pageWidth - (margin * 2);
           const printableHeight = pageHeight - (margin * 2);
 
@@ -413,7 +420,8 @@
 
           for (const el of elements) {
             if (el.tagName === 'IMG') {
-              allContentObjects.push({ type: 'image', src: (el as HTMLImageElement).src, height: 160 });
+              // FIXED: Removed TypeScript casting for standard JS compatibility
+              allContentObjects.push({ type: 'image', src: el.src, height: 160 });
             } else {
               const text = el.textContent?.trim() || "";
               if (!text) continue;
@@ -432,13 +440,12 @@
                   currentLine = word;
                 }
               });
-              // End of paragraph spacing (lineHeight + gap)
               allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight + 10 }); 
             }
           }
 
           // Virtual Pagination
-          let virtualPages: any[][] = [[]];
+          let virtualPages = [[]];
           let currentPageHeight = 0;
           let pageIdx = 0;
 
@@ -452,12 +459,10 @@
             currentPageHeight += item.height;
           }
 
-          // Selection Logic (Sidebar Sync)
           const allowedPages = (file.selectionType === 'custom' && file.pageSelection)
             ? parsePageRanges(file.pageSelection, virtualPages.length)
             : Array.from({ length: virtualPages.length }, (_, idx) => idx + 1);
 
-          // Drawing
           for (let j = 0; j < virtualPages.length; j++) {
             if (allowedPages.includes(j + 1)) {
               const page = mergedPdf.addPage([pageWidth, pageHeight]);
@@ -483,7 +488,7 @@
                 } else if (item.content.trim()) {
                   page.drawText(item.content, {
                     x: margin,
-                    y: currentY - fontSize, // Anchor to baseline
+                    y: currentY - fontSize,
                     size: fontSize,
                     font: font,
                   });
@@ -499,7 +504,7 @@
             const pdfBytes = await file.rawFile.arrayBuffer();
             const pdf = await PDFDocument.load(pdfBytes);
             const maxPages = pdf.getPageCount();
-            let indices: number[] = [];
+            let indices = [];
 
             if (file.selectionType === 'custom' && file.pageSelection) {
               indices = parsePageRanges(file.pageSelection, maxPages).map(n => n - 1);
@@ -519,7 +524,6 @@
       // --- PHASE 5: WATERMARK OVERLAYS ---
       if (activeWatermark !== 'NONE') {
         const style = watermarkStyles[activeWatermark];
-        const watermarkFont = fontBold;
         const pages = mergedPdf.getPages();
 
         pages.forEach((page) => {
@@ -528,18 +532,21 @@
             x: width / 4,
             y: height / 3,
             size: 70,
-            font: watermarkFont,
-            // UPDATED: Use themePrimary with low opacity for a branded look
+            font: fontBold,
             color: themePrimary, 
             rotate: degrees(45),
-            opacity: style.opacity || 0.15, // Slightly lower for a subtle "pro" feel
+            opacity: style.opacity || 0.15,
           });
         });
       }
 
       // --- FINAL EXPORT & DOWNLOAD ---
-      await optimizeMetadataAndImages(mergedPdf, compressEnabled);
-      const mergedPdfBytes = await mergedPdf.save({ useObjectStreams: compressEnabled });
+      // Ensure the optimization helper exists before calling
+      if (typeof optimizeMetadataAndImages === 'function') {
+        await optimizeMetadataAndImages(mergedPdf, !!compressEnabled);
+      }
+      
+      const mergedPdfBytes = await mergedPdf.save({ useObjectStreams: !!compressEnabled });
       
       const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
       const exportUrl = URL.createObjectURL(blob);
@@ -568,6 +575,7 @@
       isExporting = false;
     }
   }
+    
   // Define our available watermark types
   type WatermarkType = 'NONE' | 'DRAFT' | 'CONFIDENTIAL' | 'APPROVED';
 
@@ -600,16 +608,47 @@
         });
     });
   }
-  const globalTheme = {
+  
+  let globalTheme = $state({
+    preset: 'corporate',
     fontFamily: 'Helvetica', 
-    // Standard A4 colors: Dark text on warm paper
     primaryColor: { r: 0.12, g: 0.10, b: 0.09 }, 
     accentColor: { r: 0.97, g: 0.95, b: 0.92 }, 
     chapterFontSize: 32,
     bodyFontSize: 11,
     lineHeight: 16
-  };
+  });
   
+  function applyPreset(presetName) {
+    globalTheme.preset = presetName;
+
+    switch (presetName) {
+      case 'corporate':
+        globalTheme.fontFamily = 'Helvetica'; // Matches dropdown
+        globalTheme.primaryColor = { r: 31, g: 41, b: 55 };
+        globalTheme.accentColor = { r: 243, g: 244, b: 246 };
+        globalTheme.chapterFontSize = 32;
+        globalTheme.bodyFontSize = 11;
+        break;
+
+      case 'atelier':
+        globalTheme.fontFamily = 'Times-Roman'; // Matches dropdown
+        globalTheme.primaryColor = { r: 120, g: 113, b: 108 };
+        globalTheme.accentColor = { r: 250, g: 250, b: 249 };
+        globalTheme.chapterFontSize = 40;
+        globalTheme.bodyFontSize = 12;
+        break;
+
+      case 'midnight':
+        globalTheme.fontFamily = 'Courier'; // Matches dropdown
+        globalTheme.primaryColor = { r: 9, g: 9, b: 11 };
+        globalTheme.accentColor = { r: 217, g: 249, b: 157 };
+        globalTheme.chapterFontSize = 36;
+        globalTheme.bodyFontSize = 10;
+        break;
+    }
+  }
+
 </script>
 
 {#if menuVisible}
@@ -804,11 +843,11 @@
         <p class="text-[10px] font-bold text-stone-500 uppercase tracking-widest">
           Design & Overlays
         </p>
-        <div class="transition-transform duration-300 {settingsExpanded ? 'rotate-180' : ''}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 9l-7 7-7-7" />
-          </svg>
-        </div>
+        <div class="transition-transform duration-300 {settingsExpanded ? 'rotate-0' : 'rotate-180'}">
+  <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 9l-7 7-7-7" />
+  </svg>
+</div>
       </button>
 
       {#if settingsExpanded}
@@ -832,7 +871,9 @@
           </div>
 
           <div class="space-y-4">
-            <p class="text-[9px] font-bold text-stone-400 uppercase tracking-tighter mb-2 italic border-t {isDark ? 'border-stone-800' : 'border-stone-100'} pt-4">Design Atelier</p>
+            <p class="text-[9px] font-bold text-stone-400 uppercase tracking-tighter mb-2 italic border-t {isDark ? 'border-stone-800' : 'border-stone-100'} pt-4">
+               Design Atelier <span class="opacity-70 ml-1"> (Only works for docx and chapter)</span>
+            </p>
             
             <div>
               <label class="block text-[9px] font-bold text-stone-500 uppercase mb-1">Typography</label>
@@ -842,7 +883,7 @@
                 {isDark ? 'bg-stone-900 border-stone-800 text-stone-300' : 'bg-stone-50 border-stone-200 text-stone-700'}"
               >
                 <option value="Helvetica">Modern Sans</option>
-                <option value="TimesRoman">Classic Serif</option>
+                <option value="Times-Roman">Classic Serif</option> 
                 <option value="Courier">Technical Mono</option>
               </select>
             </div>
@@ -868,10 +909,13 @@
 
             <div class="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
               {#each ['corporate', 'atelier', 'midnight'] as presetName}
+                {@const isActive = globalTheme.preset === presetName}
                 <button 
                   onclick={() => applyPreset(presetName)}
                   class="whitespace-nowrap px-2 py-1 text-[9px] font-black uppercase rounded-md border transition-all
-                  {isDark ? 'bg-stone-900 border-stone-800 text-stone-400 hover:text-amber-500' : 'bg-stone-50 border-stone-200 text-stone-500 hover:text-amber-600'}"
+                  {isActive 
+                    ? 'border-amber-500/50 text-amber-500 bg-amber-500/5' 
+                    : (isDark ? 'bg-stone-900 border-stone-800 text-stone-400 hover:text-amber-500' : 'bg-stone-50 border-stone-200 text-stone-500 hover:text-amber-600')}"
                 >
                   {presetName}
                 </button>
