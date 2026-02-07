@@ -54,6 +54,7 @@
   let isDark = $state(false);
   let sidebarOpen = $state(false);
   let compressEnabled = $state(true);
+  let settingsExpanded = $state(false);
   /**
    * Resample an image to ~150 DPI (max 1200px on long side), keeping aspect ratio.
    * @param {Uint8Array|ArrayBuffer} imageBytes - Raw image bytes.
@@ -358,10 +359,16 @@
       const { PDFDocument, rgb, degrees, StandardFonts } = await import('pdf-lib');
       const mergedPdf = await PDFDocument.create();
       
-      // Embed fonts once outside the loop for performance
-      const font = await mergedPdf.embedFont(StandardFonts.Helvetica);
-      const fontBold = await mergedPdf.embedFont(StandardFonts.HelveticaBold);
-      const fontChapter = await mergedPdf.embedFont(StandardFonts.TimesRomanBold);
+      // --- PHASE 6: DYNAMIC THEME SETUP ---
+      // Convert theme colors to pdf-lib rgb format
+      const themePrimary = rgb(globalTheme.primaryColor.r, globalTheme.primaryColor.g, globalTheme.primaryColor.b);
+      const themeAccent = rgb(globalTheme.accentColor.r, globalTheme.accentColor.g, globalTheme.accentColor.b);
+
+      // Embed fonts dynamically based on the globalTheme object
+      const font = await mergedPdf.embedFont(StandardFonts[globalTheme.fontFamily]);
+      const fontBold = await mergedPdf.embedFont(StandardFonts[globalTheme.fontFamily + 'Bold']);
+      // Chapter font now matches the theme's bold style for consistency
+      const fontChapter = fontBold;
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -374,15 +381,17 @@
           
           page.drawRectangle({
             x: 0, y: 0, width, height,
-            color: (i % 2 === 0) ? rgb(0.97, 0.95, 0.92) : rgb(0.12, 0.10, 0.09)
+            // Uses theme colors instead of hardcoded numbers
+            color: (i % 2 === 0) ? themeAccent : themePrimary
           });
 
           page.drawText(title.toUpperCase(), {
             x: 50,
             y: height / 2,
-            size: 32,
+            size: globalTheme.chapterFontSize, // Controlled by theme
             font: fontChapter,
-            color: (i % 2 === 0) ? rgb(0.12, 0.10, 0.09) : rgb(0.97, 0.95, 0.92)
+            // Text color flips to ensure readability against the background
+            color: (i % 2 === 0) ? themePrimary : themeAccent
           });
 
         } else if (file.type === 'word') {
@@ -390,9 +399,9 @@
           const container = document.createElement('div');
           container.innerHTML = file.previewHtml || "";
           
-          // Layout Constants - Adjusted for better visual density
-          const fontSize = 11;
-          const lineHeight = 16; // Increased from 14 for better breathing room
+          // Layout Constants - Now pulled from globalTheme
+          const fontSize = globalTheme.bodyFontSize;
+          const lineHeight = globalTheme.lineHeight; 
           const margin = 50;
           const pageHeight = 841.89; 
           const pageWidth = 595.28; // Standard A4
@@ -520,9 +529,10 @@
             y: height / 3,
             size: 70,
             font: watermarkFont,
-            color: rgb(0.5, 0.5, 0.5), 
+            // UPDATED: Use themePrimary with low opacity for a branded look
+            color: themePrimary, 
             rotate: degrees(45),
-            opacity: style.opacity || 0.3,
+            opacity: style.opacity || 0.15, // Slightly lower for a subtle "pro" feel
           });
         });
       }
@@ -565,9 +575,10 @@
 
   const watermarkStyles = {
       DRAFT: { text: 'DRAFT', color: 'rgb(0.7, 0.7, 0.7)', opacity: 0.3 },
-      CONFIDENTIAL: { text: 'CONFIDENTIAL', color: 'rgb(0.8, 0.2, 0.2)', opacity: 0.5 },
+      CONFIDENTIAL: { text: 'CONFIDENTIAL', color: 'rgb(0.8, 0.2, 0.2)', opacity: 0.3 },
       APPROVED: { text: 'APPROVED', color: 'rgb(0.2, 0.6, 0.2)', opacity: 0.3 }
   };
+  
   async function applyWatermarks(pdfDoc: PDFDocument) {
     if (activeWatermark === 'NONE') return;
 
@@ -589,6 +600,16 @@
         });
     });
   }
+  const globalTheme = {
+    fontFamily: 'Helvetica', 
+    // Standard A4 colors: Dark text on warm paper
+    primaryColor: { r: 0.12, g: 0.10, b: 0.09 }, 
+    accentColor: { r: 0.97, g: 0.95, b: 0.92 }, 
+    chapterFontSize: 32,
+    bodyFontSize: 11,
+    lineHeight: 16
+  };
+  
 </script>
 
 {#if menuVisible}
@@ -775,23 +796,92 @@
       {/if}
     </div>
     
-    <div class="px-4 py-6 border-t {isDark ? 'border-stone-800' : 'border-stone-100'}">
-      <p class="text-[10px] font-bold text-stone-500 uppercase tracking-widest mb-4">Template Overlays</p>
-  
-        <div class="grid grid-cols-2 gap-2">
-        {#each ['NONE', 'DRAFT', 'CONFIDENTIAL', 'APPROVED'] as type}
-          <button 
-          onclick={() => activeWatermark = type}
-          class="py-2 px-1 rounded-lg border text-[9px] font-black uppercase tracking-tighter transition-all
-          {activeWatermark === type 
-          ? 'bg-amber-600 border-amber-600 text-white shadow-lg shadow-amber-900/20' 
-          : (isDark ? 'bg-stone-900 border-stone-800 text-stone-500 hover:border-stone-600' : 'bg-white border-stone-200 text-stone-400 hover:border-stone-300')}"
-          >
-            {type}
-          </button>
-        {/each}
+    <div class="border-t {isDark ? 'border-stone-800' : 'border-stone-100'}">
+      <button 
+        onclick={() => settingsExpanded = !settingsExpanded}
+        class="w-full px-4 py-4 flex justify-between items-center group transition-colors {isDark ? 'hover:bg-stone-900' : 'hover:bg-stone-50'}"
+      >
+        <p class="text-[10px] font-bold text-stone-500 uppercase tracking-widest">
+          Design & Overlays
+        </p>
+        <div class="transition-transform duration-300 {settingsExpanded ? 'rotate-180' : ''}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 9l-7 7-7-7" />
+          </svg>
         </div>
-      </div>
+      </button>
+
+      {#if settingsExpanded}
+        <div class="px-4 pb-6 space-y-6">
+          
+          <div>
+            <p class="text-[9px] font-bold text-stone-400 uppercase tracking-tighter mb-2 italic">Template Overlays</p>
+            <div class="grid grid-cols-2 gap-2">
+              {#each ['NONE', 'DRAFT', 'CONFIDENTIAL', 'APPROVED'] as type}
+                <button 
+                  onclick={() => activeWatermark = type}
+                  class="py-2 px-1 rounded-lg border text-[9px] font-black uppercase tracking-tighter transition-all
+                  {activeWatermark === type 
+                    ? 'bg-amber-600 border-amber-600 text-white shadow-lg' 
+                    : (isDark ? 'bg-stone-900 border-stone-800 text-stone-500 hover:border-stone-600' : 'bg-white border-stone-200 text-stone-400 hover:border-stone-300')}"
+                >
+                  {type}
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <div class="space-y-4">
+            <p class="text-[9px] font-bold text-stone-400 uppercase tracking-tighter mb-2 italic border-t {isDark ? 'border-stone-800' : 'border-stone-100'} pt-4">Design Atelier</p>
+            
+            <div>
+              <label class="block text-[9px] font-bold text-stone-500 uppercase mb-1">Typography</label>
+              <select 
+                bind:value={globalTheme.fontFamily}
+                class="w-full p-2 text-[10px] font-bold rounded-lg border outline-none transition-all
+                {isDark ? 'bg-stone-900 border-stone-800 text-stone-300' : 'bg-stone-50 border-stone-200 text-stone-700'}"
+              >
+                <option value="Helvetica">Modern Sans</option>
+                <option value="TimesRoman">Classic Serif</option>
+                <option value="Courier">Technical Mono</option>
+              </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[9px] font-bold text-stone-500 uppercase mb-1">Brand</label>
+                <input 
+                  type="color" 
+                  onchange={(e) => updateThemeColor('primaryColor', e.currentTarget.value)}
+                  class="w-full h-8 p-0.5 rounded-lg cursor-pointer border {isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-200'}"
+                />
+              </div>
+              <div>
+                <label class="block text-[9px] font-bold text-stone-500 uppercase mb-1">Accent</label>
+                <input 
+                  type="color" 
+                  onchange={(e) => updateThemeColor('accentColor', e.currentTarget.value)}
+                  class="w-full h-8 p-0.5 rounded-lg cursor-pointer border {isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-200'}"
+                />
+              </div>
+            </div>
+
+            <div class="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+              {#each ['corporate', 'atelier', 'midnight'] as presetName}
+                <button 
+                  onclick={() => applyPreset(presetName)}
+                  class="whitespace-nowrap px-2 py-1 text-[9px] font-black uppercase rounded-md border transition-all
+                  {isDark ? 'bg-stone-900 border-stone-800 text-stone-400 hover:text-amber-500' : 'bg-stone-50 border-stone-200 text-stone-500 hover:text-amber-600'}"
+                >
+                  {presetName}
+                </button>
+              {/each}
+            </div>
+          </div>
+
+        </div>
+      {/if}
+    </div>
 
     <div class="p-4 md:p-6">
       <button onclick={() => fileInput.click()} class="w-full py-3 {isDark ? 'bg-stone-900 hover:bg-stone-800 text-stone-200 border-stone-800' : 'bg-white hover:bg-stone-50 text-stone-900 border-stone-200'} rounded-xl text-[10px] uppercase tracking-widest font-bold border transition-all">
