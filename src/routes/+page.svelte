@@ -393,7 +393,7 @@
     fontFamily: 'Helvetica', 
     // Added 'hex' for the UI color pickers
     // Updated R,G,B to 255-scale for easier conversion
-    primaryColor: { hex: '#1f2937', r: 31, g: 41, b: 55 }, 
+    primaryColor: { hex: '#000000', r: 0, g: 0, b: 0 },
     accentColor: { hex: '#FFFFFF', r: 255, g: 255, b: 255 }, 
     chapterFontSize: 32,
     bodyFontSize: 11,
@@ -421,7 +421,7 @@
       case 'corporate':
       case 'default':
         globalTheme.fontFamily = 'Helvetica';
-        globalTheme.primaryColor = { hex: '#1f2937', r: 31, g: 41, b: 55 }; // Slate Dark
+        globalTheme.primaryColor = { hex: '#000000', r: 0, g: 0, b: 0 };
         globalTheme.accentColor = { hex: '#FFFFFF', r: 255, g: 255, b: 255 }; // Pure White
         globalTheme.chapterFontSize = 32;
         globalTheme.bodyFontSize = 11;
@@ -934,7 +934,7 @@
                     type="color" 
                     value={globalTheme.primaryColor.hex} 
                     oninput={(e) => updateThemeColor('primaryColor', e.currentTarget.value)} 
-                    class="absolute -inset-1 w-[150%] h-[150%] cursor-pointer bg-transparent border-none"
+                    class="absolute -top-3 -left-1 w-[200%] h-[200%] cursor-pointer bg-transparent border-none outline-none appearance-none"
                   />
                 </div>
               </div>
@@ -946,7 +946,7 @@
                     type="color" 
                     value={globalTheme.accentColor.hex} 
                     oninput={(e) => updateThemeColor('accentColor', e.currentTarget.value)} 
-                    class="absolute -inset-1 w-[150%] h-[150%] cursor-pointer bg-transparent border-none"
+                    class="absolute -top-3 -left-1 w-[200%] h-[200%] cursor-pointer bg-transparent border-none outline-none appearance-none"
                   />
                 </div>
               </div>
@@ -966,12 +966,59 @@
                 </button>
               {/each}
             </div>
-          </div>
+            <div class="mt-4 p-4 rounded-xl border border-stone-200 bg-white shadow-inner">
+              <p class="text-[9px] font-bold text-stone-400 uppercase tracking-widest mb-3">Live Export Preview</p>
+              
+              <div 
+                class="aspect-[3/4] w-full max-w-[180px] mx-auto shadow-lg rounded-sm border border-stone-100 transition-all duration-300 flex flex-col p-4 overflow-hidden"
+                style="background-color: {globalTheme.accentColor.hex};"
+              >
+                <div 
+                  class="w-1/2 h-1 mb-6 opacity-40 rounded-full" 
+                  style="background-color: {globalTheme.primaryColor.hex};"
+                ></div>
 
+                <h1 
+                  class="leading-tight transition-colors duration-300 mb-2"
+                  style="
+                    color: {globalTheme.primaryColor.hex}; 
+                    font-family: {globalTheme.fontFamily}; 
+                    font-size: {globalTheme.chapterFontSize / 5}px;
+                  "
+                >
+                  The Archive
+                </h1>
+                
+                <div 
+                  class="w-full h-[0.5px] mb-4 opacity-20" 
+                  style="background-color: {globalTheme.primaryColor.hex};"
+                ></div>
+                
+                <div class="space-y-1.5">
+                  {#each [1, 2, 3, 4, 5] as _, i}
+                    <div 
+                      class="h-[2px] rounded-full" 
+                      style="
+                        background-color: {globalTheme.primaryColor.hex}; 
+                        width: {i === 4 ? '60%' : '100%'};
+                        opacity: 0.5;
+                      "
+                    ></div>
+                  {/each}
+                </div>
+              </div>
+              
+              <div class="mt-3 text-center">
+                <span class="text-[10px] text-stone-400 font-medium">
+                  {globalTheme.fontFamily} — {globalTheme.bodyFontSize}pt
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       {/if}
     </div>
-
+    
     <div class="p-4 md:p-6">
       <button onclick={() => fileInput.click()} class="w-full py-3 {isDark ? 'bg-stone-900 hover:bg-stone-800 text-stone-200 border-stone-800' : 'bg-white hover:bg-stone-50 text-stone-900 border-stone-200'} rounded-xl text-[10px] uppercase tracking-widest font-bold border transition-all">
         Import PDF
