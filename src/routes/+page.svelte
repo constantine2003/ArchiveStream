@@ -349,6 +349,86 @@
     files = [];
   }
 
+  // Define our available watermark types
+  type WatermarkType = 'NONE' | 'DRAFT' | 'CONFIDENTIAL' | 'APPROVED';
+
+  let activeWatermark = $state<WatermarkType>('NONE');
+
+  const watermarkStyles = {
+      DRAFT: { text: 'DRAFT', color: 'rgb(0.7, 0.7, 0.7)', opacity: 0.3 },
+      CONFIDENTIAL: { text: 'CONFIDENTIAL', color: 'rgb(0.8, 0.2, 0.2)', opacity: 0.3 },
+      APPROVED: { text: 'APPROVED', color: 'rgb(0.2, 0.6, 0.2)', opacity: 0.3 }
+  };
+  
+  async function applyWatermarks(pdfDoc: PDFDocument) {
+    if (activeWatermark === 'NONE') return;
+
+    const style = watermarkStyles[activeWatermark];
+    const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const pages = pdfDoc.getPages();
+
+    pages.forEach((page) => {
+        const { width, height } = page.getSize();
+        
+        page.drawText(style.text, {
+            x: width / 4,
+            y: height / 3,
+            size: 80,
+            font: font,
+            color: rgb(0.5, 0.5, 0.5), // Subtle gray
+            rotate: degrees(45),
+            opacity: style.opacity,
+        });
+    });
+  }
+  
+  function resetToDefault() {
+  applyPreset('corporate');
+  // Optional: Force a UI refresh if your framework needs it
+  console.log("Theme reset to Corporate baseline");
+  }
+  
+  let globalTheme = $state({
+    preset: 'corporate',
+    fontFamily: 'Helvetica', 
+    primaryColor: { r: 0.12, g: 0.10, b: 0.09 }, 
+    accentColor: { r: 0.97, g: 0.95, b: 0.92 }, 
+    chapterFontSize: 32,
+    bodyFontSize: 11,
+    lineHeight: 16
+  });
+  
+  function applyPreset(presetName) {
+    globalTheme.preset = presetName;
+
+    switch (presetName) {
+      case 'corporate':
+      case 'default':
+        globalTheme.fontFamily = 'Helvetica'; // Matches dropdown
+        globalTheme.primaryColor = { r: 31, g: 41, b: 55 };
+        globalTheme.accentColor = { r: 243, g: 244, b: 246 };
+        globalTheme.chapterFontSize = 32;
+        globalTheme.bodyFontSize = 11;
+        break;
+
+      case 'atelier':
+        globalTheme.fontFamily = 'TimesRoman'; // Matches dropdown
+        globalTheme.primaryColor = { r: 120, g: 113, b: 108 };
+        globalTheme.accentColor = { r: 250, g: 250, b: 249 };
+        globalTheme.chapterFontSize = 40;
+        globalTheme.bodyFontSize = 12;
+        break;
+
+      case 'midnight':
+        globalTheme.fontFamily = 'Courier'; // Matches dropdown
+        globalTheme.primaryColor = { r: 9, g: 9, b: 11 };
+        globalTheme.accentColor = { r: 217, g: 249, b: 157 };
+        globalTheme.chapterFontSize = 36;
+        globalTheme.bodyFontSize = 10;
+        break;
+    }
+  }
+
   async function handleExport() {
     if (files.length === 0 || isExporting) return;
     try {
@@ -374,10 +454,33 @@
         norm(globalTheme.accentColor.b)
       );
 
-      // Embed fonts dynamically based on the globalTheme object
+      // 1. Get the base font name
       const fontName = globalTheme.fontFamily || 'Helvetica';
+      
+      // 2. Embed the primary font
       const font = await mergedPdf.embedFont(StandardFonts[fontName]);
-      const fontBold = await mergedPdf.embedFont(StandardFonts[`${fontName}Bold`] || StandardFonts.HelveticaBold);
+      
+      // 3. SAFE BOLD LOOKUP (The "No-Crash" Logic)
+      // We try the three most common naming conventions in pdf-lib
+      const boldVariants = [
+        `${fontName.replace('-', '')}Bold`, // TimesRomanBold
+        `${fontName}-Bold`,                 // Courier-Bold / Helvetica-Bold
+        `${fontName}Bold`                   // HelveticaBold (alternative)
+      ];
+
+      let fontBold;
+      for (const variant of boldVariants) {
+        if (StandardFonts[variant]) {
+          fontBold = await mergedPdf.embedFont(StandardFonts[variant]);
+          break; 
+        }
+      }
+
+      // Final fallback: If none of the above worked, use Helvetica Bold
+      if (!fontBold) {
+        fontBold = await mergedPdf.embedFont(StandardFonts.HelveticaBold);
+      }
+
       const fontChapter = fontBold;
 
       for (let i = 0; i < files.length; i++) {
@@ -403,7 +506,7 @@
           });
 
         } else if (file.type === 'word') {
-          // --- WORD/HTML LOGIC (PHASE 4 EXPANSION) ---
+          // --- PHASE 4: WORD/HTML BRANDED EXPORT ---
           const container = document.createElement('div');
           container.innerHTML = file.previewHtml || "";
           
@@ -420,7 +523,6 @@
 
           for (const el of elements) {
             if (el.tagName === 'IMG') {
-              // FIXED: Removed TypeScript casting for standard JS compatibility
               allContentObjects.push({ type: 'image', src: el.src, height: 160 });
             } else {
               const text = el.textContent?.trim() || "";
@@ -431,6 +533,7 @@
 
               words.forEach(word => {
                 const testLine = currentLine ? `${currentLine} ${word}` : word;
+                // Uses the safely loaded 'font' (TimesRoman for Atelier)
                 const width = font.widthOfTextAtSize(testLine, fontSize);
                 
                 if (width < maxWidth) {
@@ -444,7 +547,7 @@
             }
           }
 
-          // Virtual Pagination
+          // Virtual Pagination Logic
           let virtualPages = [[]];
           let currentPageHeight = 0;
           let pageIdx = 0;
@@ -459,13 +562,25 @@
             currentPageHeight += item.height;
           }
 
+          // Selective Page Range Logic (Phase 1 Roadmap)
           const allowedPages = (file.selectionType === 'custom' && file.pageSelection)
             ? parsePageRanges(file.pageSelection, virtualPages.length)
             : Array.from({ length: virtualPages.length }, (_, idx) => idx + 1);
 
+          // --- PDF RENDERING LOOP ---
           for (let j = 0; j < virtualPages.length; j++) {
             if (allowedPages.includes(j + 1)) {
               const page = mergedPdf.addPage([pageWidth, pageHeight]);
+              
+              // 1. DRAW BACKGROUND (Only if not Corporate/Default)
+              if (globalTheme.preset !== 'corporate') {
+                page.drawRectangle({ 
+                  x: 0, y: 0, 
+                  width: pageWidth, height: pageHeight, 
+                  color: themeAccent 
+                });
+              }
+
               let currentY = pageHeight - margin;
 
               for (const item of virtualPages[j]) {
@@ -486,18 +601,22 @@
                     console.error("Image export failed", e);
                   }
                 } else if (item.content.trim()) {
+                  // 2. DRAW BRANDED TEXT
                   page.drawText(item.content, {
                     x: margin,
                     y: currentY - fontSize,
                     size: fontSize,
-                    font: font,
+                    font: font,           // Corrected Font (Times/Helvetica/Courier)
+                    color: themePrimary,  // Corrected Color (Ink)
                   });
-                  currentY -= (item.height > lineHeight) ? item.height : lineHeight;
+                  
+                  // Add a tiny bit of extra leading for better serif readability
+                  const spacing = (globalTheme.preset === 'atelier') ? 2 : 0;
+                  currentY -= (item.height > lineHeight) ? item.height + spacing : lineHeight + spacing;
                 }
               }
             }
           }
-
         } else {
           // --- PDF LOGIC ---
           if (file.rawFile) {
@@ -573,79 +692,6 @@
       console.error("Export Failed:", err);
       alert("Error combining documents. Check console.");
       isExporting = false;
-    }
-  }
-    
-  // Define our available watermark types
-  type WatermarkType = 'NONE' | 'DRAFT' | 'CONFIDENTIAL' | 'APPROVED';
-
-  let activeWatermark = $state<WatermarkType>('NONE');
-
-  const watermarkStyles = {
-      DRAFT: { text: 'DRAFT', color: 'rgb(0.7, 0.7, 0.7)', opacity: 0.3 },
-      CONFIDENTIAL: { text: 'CONFIDENTIAL', color: 'rgb(0.8, 0.2, 0.2)', opacity: 0.3 },
-      APPROVED: { text: 'APPROVED', color: 'rgb(0.2, 0.6, 0.2)', opacity: 0.3 }
-  };
-  
-  async function applyWatermarks(pdfDoc: PDFDocument) {
-    if (activeWatermark === 'NONE') return;
-
-    const style = watermarkStyles[activeWatermark];
-    const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-    const pages = pdfDoc.getPages();
-
-    pages.forEach((page) => {
-        const { width, height } = page.getSize();
-        
-        page.drawText(style.text, {
-            x: width / 4,
-            y: height / 3,
-            size: 80,
-            font: font,
-            color: rgb(0.5, 0.5, 0.5), // Subtle gray
-            rotate: degrees(45),
-            opacity: style.opacity,
-        });
-    });
-  }
-  
-  let globalTheme = $state({
-    preset: 'corporate',
-    fontFamily: 'Helvetica', 
-    primaryColor: { r: 0.12, g: 0.10, b: 0.09 }, 
-    accentColor: { r: 0.97, g: 0.95, b: 0.92 }, 
-    chapterFontSize: 32,
-    bodyFontSize: 11,
-    lineHeight: 16
-  });
-  
-  function applyPreset(presetName) {
-    globalTheme.preset = presetName;
-
-    switch (presetName) {
-      case 'corporate':
-        globalTheme.fontFamily = 'Helvetica'; // Matches dropdown
-        globalTheme.primaryColor = { r: 31, g: 41, b: 55 };
-        globalTheme.accentColor = { r: 243, g: 244, b: 246 };
-        globalTheme.chapterFontSize = 32;
-        globalTheme.bodyFontSize = 11;
-        break;
-
-      case 'atelier':
-        globalTheme.fontFamily = 'Times-Roman'; // Matches dropdown
-        globalTheme.primaryColor = { r: 120, g: 113, b: 108 };
-        globalTheme.accentColor = { r: 250, g: 250, b: 249 };
-        globalTheme.chapterFontSize = 40;
-        globalTheme.bodyFontSize = 12;
-        break;
-
-      case 'midnight':
-        globalTheme.fontFamily = 'Courier'; // Matches dropdown
-        globalTheme.primaryColor = { r: 9, g: 9, b: 11 };
-        globalTheme.accentColor = { r: 217, g: 249, b: 157 };
-        globalTheme.chapterFontSize = 36;
-        globalTheme.bodyFontSize = 10;
-        break;
     }
   }
 
@@ -844,10 +890,10 @@
           Design & Overlays
         </p>
         <div class="transition-transform duration-300 {settingsExpanded ? 'rotate-0' : 'rotate-180'}">
-  <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 9l-7 7-7-7" />
-  </svg>
-</div>
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
       </button>
 
       {#if settingsExpanded}
@@ -883,7 +929,7 @@
                 {isDark ? 'bg-stone-900 border-stone-800 text-stone-300' : 'bg-stone-50 border-stone-200 text-stone-700'}"
               >
                 <option value="Helvetica">Modern Sans</option>
-                <option value="Times-Roman">Classic Serif</option> 
+                <option value="TimesRoman">Classic Serif</option> 
                 <option value="Courier">Technical Mono</option>
               </select>
             </div>
@@ -907,7 +953,7 @@
               </div>
             </div>
 
-            <div class="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+           <div class="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
               {#each ['corporate', 'atelier', 'midnight'] as presetName}
                 {@const isActive = globalTheme.preset === presetName}
                 <button 
@@ -917,7 +963,7 @@
                     ? 'border-amber-500/50 text-amber-500 bg-amber-500/5' 
                     : (isDark ? 'bg-stone-900 border-stone-800 text-stone-400 hover:text-amber-500' : 'bg-stone-50 border-stone-200 text-stone-500 hover:text-amber-600')}"
                 >
-                  {presetName}
+                  {presetName === 'corporate' ? 'DEFAULT' : presetName}
                 </button>
               {/each}
             </div>
