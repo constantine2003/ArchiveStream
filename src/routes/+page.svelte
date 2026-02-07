@@ -391,38 +391,56 @@
   let globalTheme = $state({
     preset: 'corporate',
     fontFamily: 'Helvetica', 
-    primaryColor: { r: 0.12, g: 0.10, b: 0.09 }, 
-    accentColor: { r: 0.97, g: 0.95, b: 0.92 }, 
+    // Added 'hex' for the UI color pickers
+    // Updated R,G,B to 255-scale for easier conversion
+    primaryColor: { hex: '#1f2937', r: 31, g: 41, b: 55 }, 
+    accentColor: { hex: '#FFFFFF', r: 255, g: 255, b: 255 }, 
     chapterFontSize: 32,
     bodyFontSize: 11,
     lineHeight: 16
   });
   
+  function updateThemeColor(type, hex) {
+    // 1. Convert Hex (#ffffff) to 0-255 RGB
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    
+    // 2. Update the state so handleExport sees it
+    // We keep the hex string too so the color picker stays synced
+    globalTheme[type] = { hex, r, g, b };
+    
+    // 3. Clear the preset name since we are now "Custom"
+    globalTheme.preset = 'custom';
+  }
+
   function applyPreset(presetName) {
     globalTheme.preset = presetName;
 
     switch (presetName) {
       case 'corporate':
       case 'default':
-        globalTheme.fontFamily = 'Helvetica'; // Matches dropdown
-        globalTheme.primaryColor = { r: 31, g: 41, b: 55 };
-        globalTheme.accentColor = { r: 243, g: 244, b: 246 };
+        globalTheme.fontFamily = 'Helvetica';
+        globalTheme.primaryColor = { hex: '#1f2937', r: 31, g: 41, b: 55 }; // Slate Dark
+        globalTheme.accentColor = { hex: '#FFFFFF', r: 255, g: 255, b: 255 }; // Pure White
         globalTheme.chapterFontSize = 32;
         globalTheme.bodyFontSize = 11;
         break;
 
       case 'atelier':
-        globalTheme.fontFamily = 'TimesRoman'; // Matches dropdown
-        globalTheme.primaryColor = { r: 120, g: 113, b: 108 };
-        globalTheme.accentColor = { r: 250, g: 250, b: 249 };
+        globalTheme.fontFamily = 'TimesRoman';
+        // Added Hex + R,G,B (Stone-600 / Stone-50)
+        globalTheme.primaryColor = { hex: '#78716c', r: 120, g: 113, b: 108 };
+        globalTheme.accentColor = { hex: '#fafaf9', r: 250, g: 250, b: 249 };
         globalTheme.chapterFontSize = 40;
         globalTheme.bodyFontSize = 12;
         break;
 
       case 'midnight':
-        globalTheme.fontFamily = 'Courier'; // Matches dropdown
-        globalTheme.primaryColor = { r: 9, g: 9, b: 11 };
-        globalTheme.accentColor = { r: 217, g: 249, b: 157 };
+        globalTheme.fontFamily = 'Courier';
+        // Added Hex + R,G,B (Zinc-950 / Lime-200)
+        globalTheme.primaryColor = { hex: '#09090b', r: 9, g: 9, b: 11 };
+        globalTheme.accentColor = { hex: '#d9f99d', r: 217, g: 249, b: 157 };
         globalTheme.chapterFontSize = 36;
         globalTheme.bodyFontSize = 10;
         break;
@@ -430,270 +448,244 @@
   }
 
   async function handleExport() {
-    if (files.length === 0 || isExporting) return;
-    try {
-      isExporting = true;
-      showSuccess = false;
-      exportProgress = 0;
+  if (files.length === 0 || isExporting) return;
+  
+  try {
+    isExporting = true;
+    showSuccess = false;
+    exportProgress = 0;
 
-      const { PDFDocument, rgb, degrees, StandardFonts } = await import('pdf-lib');
-      const mergedPdf = await PDFDocument.create();
-      
-      // --- PHASE 6: DYNAMIC THEME SETUP ---
-      // Helper to ensure colors are 0-1 range (prevents pdf-lib crashes)
-      const norm = (val) => (val > 1 ? val / 255 : val);
-      
-      const themePrimary = rgb(
-        norm(globalTheme.primaryColor.r), 
-        norm(globalTheme.primaryColor.g), 
-        norm(globalTheme.primaryColor.b)
-      );
-      const themeAccent = rgb(
-        norm(globalTheme.accentColor.r), 
-        norm(globalTheme.accentColor.g), 
-        norm(globalTheme.accentColor.b)
-      );
+    const { PDFDocument, rgb, degrees, StandardFonts } = await import('pdf-lib');
+    const mergedPdf = await PDFDocument.create();
+    
+    // --- BRANDING SETUP ---
+    // Helper to ensure colors are 0-1 range
+    const norm = (val) => (val > 1 ? val / 255 : val);
+    
+    const themePrimary = rgb(
+      norm(globalTheme.primaryColor.r), 
+      norm(globalTheme.primaryColor.g), 
+      norm(globalTheme.primaryColor.b)
+    );
+    const themeAccent = rgb(
+      norm(globalTheme.accentColor.r), 
+      norm(globalTheme.accentColor.g), 
+      norm(globalTheme.accentColor.b)
+    );
 
-      // 1. Get the base font name
-      const fontName = globalTheme.fontFamily || 'Helvetica';
-      
-      // 2. Embed the primary font
-      const font = await mergedPdf.embedFont(StandardFonts[fontName]);
-      
-      // 3. SAFE BOLD LOOKUP (The "No-Crash" Logic)
-      // We try the three most common naming conventions in pdf-lib
-      const boldVariants = [
-        `${fontName.replace('-', '')}Bold`, // TimesRomanBold
-        `${fontName}-Bold`,                 // Courier-Bold / Helvetica-Bold
-        `${fontName}Bold`                   // HelveticaBold (alternative)
-      ];
-
-      let fontBold;
-      for (const variant of boldVariants) {
-        if (StandardFonts[variant]) {
-          fontBold = await mergedPdf.embedFont(StandardFonts[variant]);
-          break; 
-        }
+    // Font Handling
+    const fontName = globalTheme.fontFamily || 'Helvetica';
+    const font = await mergedPdf.embedFont(StandardFonts[fontName]);
+    
+    const boldVariants = [`${fontName.replace('-', '')}Bold`, `${fontName}-Bold`, `${fontName}Bold` ];
+    let fontBold;
+    for (const variant of boldVariants) {
+      if (StandardFonts[variant]) {
+        fontBold = await mergedPdf.embedFont(StandardFonts[variant]);
+        break; 
       }
-
-      // Final fallback: If none of the above worked, use Helvetica Bold
-      if (!fontBold) {
-        fontBold = await mergedPdf.embedFont(StandardFonts.HelveticaBold);
-      }
-
-      const fontChapter = fontBold;
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-
-        if (file.type === 'chapter') {
-          // --- CHAPTER LOGIC ---
-          const page = mergedPdf.addPage([600, 800]);
-          const { width, height } = page.getSize();
-          const title = typeof file.title === 'string' ? file.title : 'Section';
-          
-          page.drawRectangle({
-            x: 0, y: 0, width, height,
-            color: (i % 2 === 0) ? themeAccent : themePrimary
-          });
-
-          page.drawText(title.toUpperCase(), {
-            x: 50,
-            y: height / 2,
-            size: globalTheme.chapterFontSize || 32,
-            font: fontChapter,
-            color: (i % 2 === 0) ? themePrimary : themeAccent
-          });
-
-        } else if (file.type === 'word') {
-          // --- PHASE 4: WORD/HTML BRANDED EXPORT ---
-          const container = document.createElement('div');
-          container.innerHTML = file.previewHtml || "";
-          
-          const fontSize = globalTheme.bodyFontSize || 11;
-          const lineHeight = globalTheme.lineHeight || 16; 
-          const margin = 50;
-          const pageHeight = 841.89; 
-          const pageWidth = 595.28; 
-          const maxWidth = pageWidth - (margin * 2);
-          const printableHeight = pageHeight - (margin * 2);
-
-          const allContentObjects = [];
-          const elements = Array.from(container.querySelectorAll('p, img, h1, h2, li, div'));
-
-          for (const el of elements) {
-            if (el.tagName === 'IMG') {
-              allContentObjects.push({ type: 'image', src: el.src, height: 160 });
-            } else {
-              const text = el.textContent?.trim() || "";
-              if (!text) continue;
-
-              const words = text.split(/\s+/);
-              let currentLine = "";
-
-              words.forEach(word => {
-                const testLine = currentLine ? `${currentLine} ${word}` : word;
-                // Uses the safely loaded 'font' (TimesRoman for Atelier)
-                const width = font.widthOfTextAtSize(testLine, fontSize);
-                
-                if (width < maxWidth) {
-                  currentLine = testLine;
-                } else {
-                  allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight });
-                  currentLine = word;
-                }
-              });
-              allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight + 10 }); 
-            }
-          }
-
-          // Virtual Pagination Logic
-          let virtualPages = [[]];
-          let currentPageHeight = 0;
-          let pageIdx = 0;
-
-          for (const item of allContentObjects) {
-            if (currentPageHeight + item.height > printableHeight) {
-              virtualPages.push([]);
-              pageIdx++;
-              currentPageHeight = 0;
-            }
-            virtualPages[pageIdx].push(item);
-            currentPageHeight += item.height;
-          }
-
-          // Selective Page Range Logic (Phase 1 Roadmap)
-          const allowedPages = (file.selectionType === 'custom' && file.pageSelection)
-            ? parsePageRanges(file.pageSelection, virtualPages.length)
-            : Array.from({ length: virtualPages.length }, (_, idx) => idx + 1);
-
-          // --- PDF RENDERING LOOP ---
-          for (let j = 0; j < virtualPages.length; j++) {
-            if (allowedPages.includes(j + 1)) {
-              const page = mergedPdf.addPage([pageWidth, pageHeight]);
-              
-              // 1. DRAW BACKGROUND (Only if not Corporate/Default)
-              if (globalTheme.preset !== 'corporate') {
-                page.drawRectangle({ 
-                  x: 0, y: 0, 
-                  width: pageWidth, height: pageHeight, 
-                  color: themeAccent 
-                });
-              }
-
-              let currentY = pageHeight - margin;
-
-              for (const item of virtualPages[j]) {
-                if (item.type === 'image') {
-                  try {
-                    const imgData = await fetch(item.src).then(res => res.arrayBuffer());
-                    const image = item.src.includes('png') ? await mergedPdf.embedPng(imgData) : await mergedPdf.embedJpg(imgData);
-                    const dims = image.scaleToFit(maxWidth, 150);
-                    
-                    page.drawImage(image, {
-                      x: margin,
-                      y: currentY - dims.height,
-                      width: dims.width,
-                      height: dims.height,
-                    });
-                    currentY -= (dims.height + 20); 
-                  } catch (e) {
-                    console.error("Image export failed", e);
-                  }
-                } else if (item.content.trim()) {
-                  // 2. DRAW BRANDED TEXT
-                  page.drawText(item.content, {
-                    x: margin,
-                    y: currentY - fontSize,
-                    size: fontSize,
-                    font: font,           // Corrected Font (Times/Helvetica/Courier)
-                    color: themePrimary,  // Corrected Color (Ink)
-                  });
-                  
-                  // Add a tiny bit of extra leading for better serif readability
-                  const spacing = (globalTheme.preset === 'atelier') ? 2 : 0;
-                  currentY -= (item.height > lineHeight) ? item.height + spacing : lineHeight + spacing;
-                }
-              }
-            }
-          }
-        } else {
-          // --- PDF LOGIC ---
-          if (file.rawFile) {
-            const pdfBytes = await file.rawFile.arrayBuffer();
-            const pdf = await PDFDocument.load(pdfBytes);
-            const maxPages = pdf.getPageCount();
-            let indices = [];
-
-            if (file.selectionType === 'custom' && file.pageSelection) {
-              indices = parsePageRanges(file.pageSelection, maxPages).map(n => n - 1);
-            } else {
-              indices = Array.from({length: maxPages}, (_, idx) => idx);
-            }
-
-            if (indices.length > 0) {
-              const copiedPages = await mergedPdf.copyPages(pdf, indices);
-              copiedPages.forEach((page) => mergedPdf.addPage(page));
-            }
-          }
-        }
-        exportProgress = Math.round(((i + 1) / files.length) * 100);
-      }
-
-      // --- PHASE 5: WATERMARK OVERLAYS ---
-      if (activeWatermark !== 'NONE') {
-        const style = watermarkStyles[activeWatermark];
-        const pages = mergedPdf.getPages();
-
-        pages.forEach((page) => {
-          const { width, height } = page.getSize();
-          page.drawText(style.text, {
-            x: width / 4,
-            y: height / 3,
-            size: 70,
-            font: fontBold,
-            color: themePrimary, 
-            rotate: degrees(45),
-            opacity: style.opacity || 0.15,
-          });
-        });
-      }
-
-      // --- FINAL EXPORT & DOWNLOAD ---
-      // Ensure the optimization helper exists before calling
-      if (typeof optimizeMetadataAndImages === 'function') {
-        await optimizeMetadataAndImages(mergedPdf, !!compressEnabled);
-      }
-      
-      const mergedPdfBytes = await mergedPdf.save({ useObjectStreams: !!compressEnabled });
-      
-      const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
-      const exportUrl = URL.createObjectURL(blob);
-      const fileName = `ArchiveStream_${Date.now()}.pdf`;
-      
-      const link = document.createElement('a');
-      link.href = exportUrl;
-      link.download = fileName;
-      link.click();
-
-      // Update Local History (Phase 3 Optimization)
-      exportHistory = [{
-        name: fileName,
-        date: new Date().toLocaleDateString(undefined, { 
-          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
-        }),
-        url: exportUrl
-      }, ...exportHistory].slice(0, 5);
-
-      showSuccess = true;
-      setTimeout(() => { isExporting = false; showSuccess = false; }, 2500);
-
-    } catch (err) {
-      console.error("Export Failed:", err);
-      alert("Error combining documents. Check console.");
-      isExporting = false;
     }
+    if (!fontBold) fontBold = await mergedPdf.embedFont(StandardFonts.HelveticaBold);
+
+    // --- MAIN PROCESSING LOOP ---
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+
+      if (file.type === 'chapter') {
+        /**
+         * CHAPTER LOGIC (Phase 2: Professional Export)
+         * Purpose: Acts as a high-impact brand separator.
+         */
+        const page = mergedPdf.addPage([600, 800]);
+        const { width, height } = page.getSize();
+        const title = typeof file.title === 'string' ? file.title : 'Section';
+        
+        // Background = Brand Accent (Paper)
+        page.drawRectangle({
+          x: 0, y: 0, width, height,
+          color: themeAccent 
+        });
+
+        // Text = Brand Primary (Ink)
+        page.drawText(title.toUpperCase(), {
+          x: 50,
+          y: height / 2,
+          size: globalTheme.chapterFontSize || 32,
+          font: fontBold,
+          color: themePrimary 
+        });
+
+      } else if (file.type === 'word') {
+        /**
+         * WORD/HTML LOGIC (Phase 4: Expansion)
+         * Purpose: Renders editable content with consistent branding.
+         */
+        const container = document.createElement('div');
+        container.innerHTML = file.previewHtml || "";
+        
+        const fontSize = globalTheme.bodyFontSize || 11;
+        const lineHeight = globalTheme.lineHeight || 16; 
+        const margin = 50;
+        const pageHeight = 841.89; 
+        const pageWidth = 595.28; 
+        const maxWidth = pageWidth - (margin * 2);
+        const printableHeight = pageHeight - (margin * 2);
+
+        // 1. Text Wrapping Logic
+        const allContentObjects = [];
+        const elements = Array.from(container.querySelectorAll('p, img, h1, h2, li, div'));
+
+        for (const el of elements) {
+          if (el.tagName === 'IMG') {
+            allContentObjects.push({ type: 'image', src: el.src, height: 160 });
+          } else {
+            const text = el.textContent?.trim() || "";
+            if (!text) continue;
+            const words = text.split(/\s+/);
+            let currentLine = "";
+            words.forEach(word => {
+              const testLine = currentLine ? `${currentLine} ${word}` : word;
+              const width = font.widthOfTextAtSize(testLine, fontSize);
+              if (width < maxWidth) { 
+                currentLine = testLine; 
+              } else {
+                allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight });
+                currentLine = word;
+              }
+            });
+            allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight + 10 }); 
+          }
+        }
+
+        // 2. Pagination Logic
+        let virtualPages = [[]];
+        let currentPageHeight = 0;
+        let pageIdx = 0;
+        for (const item of allContentObjects) {
+          if (currentPageHeight + item.height > printableHeight) {
+            virtualPages.push([]);
+            pageIdx++;
+            currentPageHeight = 0;
+          }
+          virtualPages[pageIdx].push(item);
+          currentPageHeight += item.height;
+        }
+
+        // 3. Selective Range (Phase 1)
+        const allowedPages = (file.selectionType === 'custom' && file.pageSelection)
+          ? parsePageRanges(file.pageSelection, virtualPages.length)
+          : Array.from({ length: virtualPages.length }, (_, idx) => idx + 1);
+
+        // 4. Draw to PDF
+        for (let j = 0; j < virtualPages.length; j++) {
+          if (allowedPages.includes(j + 1)) {
+            const page = mergedPdf.addPage([pageWidth, pageHeight]);
+            
+            // Draw "Digital Paper" Background (Except for Corporate)
+            if (globalTheme.preset !== 'corporate') {
+              page.drawRectangle({ 
+                x: 0, y: 0, width: pageWidth, height: pageHeight, 
+                color: themeAccent 
+              });
+            }
+
+            let currentY = pageHeight - margin;
+            for (const item of virtualPages[j]) {
+              if (item.type === 'image') {
+                try {
+                  const imgData = await fetch(item.src).then(res => res.arrayBuffer());
+                  const image = item.src.includes('png') ? await mergedPdf.embedPng(imgData) : await mergedPdf.embedJpg(imgData);
+                  const dims = image.scaleToFit(maxWidth, 150);
+                  page.drawImage(image, {
+                    x: margin, y: currentY - dims.height,
+                    width: dims.width, height: dims.height,
+                  });
+                  currentY -= (dims.height + 20); 
+                } catch (e) { console.error("Image export failed", e); }
+              } else if (item.content.trim()) {
+                page.drawText(item.content, {
+                  x: margin, y: currentY - fontSize,
+                  size: fontSize, font: font,
+                  color: themePrimary, // Brand Ink
+                });
+                const spacing = (globalTheme.preset === 'atelier') ? 2 : 0;
+                currentY -= (item.height > lineHeight) ? item.height + spacing : lineHeight + spacing;
+              }
+            }
+          }
+        }
+      } else {
+        /**
+         * STANDARD PDF LOGIC (Phase 1: Organization)
+         * Purpose: Merges existing PDF files with range selection.
+         */
+        if (file.rawFile) {
+          const pdfBytes = await file.rawFile.arrayBuffer();
+          const pdf = await PDFDocument.load(pdfBytes);
+          const maxPages = pdf.getPageCount();
+          let indices = (file.selectionType === 'custom' && file.pageSelection)
+            ? parsePageRanges(file.pageSelection, maxPages).map(n => n - 1)
+            : Array.from({length: maxPages}, (_, idx) => idx);
+
+          if (indices.length > 0) {
+            const copiedPages = await mergedPdf.copyPages(pdf, indices);
+            copiedPages.forEach((page) => mergedPdf.addPage(page));
+          }
+        }
+      }
+      exportProgress = Math.round(((i + 1) / files.length) * 100);
+    }
+
+    // --- WATERMARK OVERLAYS ---
+    if (activeWatermark !== 'NONE') {
+      const style = watermarkStyles[activeWatermark];
+      const pages = mergedPdf.getPages();
+      pages.forEach((page) => {
+        const { width, height } = page.getSize();
+        page.drawText(style.text, {
+          x: width / 4, y: height / 3,
+          size: 70, font: fontBold,
+          color: themePrimary, // Watermark uses Brand Primary
+          rotate: degrees(45),
+          opacity: style.opacity || 0.15,
+        });
+      });
+    }
+
+    // --- FINAL EXPORT & DOWNLOAD ---
+    // Metadata Optimization (Phase 3)
+    if (typeof optimizeMetadataAndImages === 'function') {
+      await optimizeMetadataAndImages(mergedPdf, !!compressEnabled);
+    }
+    
+    const mergedPdfBytes = await mergedPdf.save({ useObjectStreams: !!compressEnabled });
+    const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
+    const exportUrl = URL.createObjectURL(blob);
+    const fileName = `ArchiveStream_${Date.now()}.pdf`;
+    
+    const link = document.createElement('a');
+    link.href = exportUrl;
+    link.download = fileName;
+    link.click();
+
+    // Export History (Phase 3)
+    exportHistory = [{
+      name: fileName,
+      date: new Date().toLocaleDateString(undefined, { 
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+      }),
+      url: exportUrl
+    }, ...exportHistory].slice(0, 5);
+
+    showSuccess = true;
+    setTimeout(() => { isExporting = false; showSuccess = false; }, 2500);
+
+  } catch (err) {
+    console.error("Export Failed:", err);
+    alert("Error combining documents. Please check the console.");
+    isExporting = false;
   }
+}
 
 </script>
 
@@ -934,22 +926,29 @@
               </select>
             </div>
 
-            <div class="grid grid-cols-2 gap-2">
+            <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-[9px] font-bold text-stone-500 uppercase mb-1">Brand</label>
-                <input 
-                  type="color" 
-                  onchange={(e) => updateThemeColor('primaryColor', e.currentTarget.value)}
-                  class="w-full h-8 p-0.5 rounded-lg cursor-pointer border {isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-200'}"
-                />
+                <label class="block text-[8px] font-bold text-stone-400 uppercase mb-1 tracking-tight">Ink</label>
+                <div class="relative w-full h-6 rounded-md border border-stone-200 overflow-hidden group shadow-sm hover:border-stone-400 transition-colors">
+                  <input 
+                    type="color" 
+                    value={globalTheme.primaryColor.hex} 
+                    oninput={(e) => updateThemeColor('primaryColor', e.currentTarget.value)} 
+                    class="absolute -inset-1 w-[150%] h-[150%] cursor-pointer bg-transparent border-none"
+                  />
+                </div>
               </div>
+
               <div>
-                <label class="block text-[9px] font-bold text-stone-500 uppercase mb-1">Accent</label>
-                <input 
-                  type="color" 
-                  onchange={(e) => updateThemeColor('accentColor', e.currentTarget.value)}
-                  class="w-full h-8 p-0.5 rounded-lg cursor-pointer border {isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-200'}"
-                />
+                <label class="block text-[8px] font-bold text-stone-400 uppercase mb-1 tracking-tight">Paper</label>
+                <div class="relative w-full h-6 rounded-md border border-stone-200 overflow-hidden group shadow-sm hover:border-stone-400 transition-colors">
+                  <input 
+                    type="color" 
+                    value={globalTheme.accentColor.hex} 
+                    oninput={(e) => updateThemeColor('accentColor', e.currentTarget.value)} 
+                    class="absolute -inset-1 w-[150%] h-[150%] cursor-pointer bg-transparent border-none"
+                  />
+                </div>
               </div>
             </div>
 
