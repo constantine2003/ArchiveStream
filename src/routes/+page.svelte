@@ -54,6 +54,7 @@
   let isDark = $state(false);
   let sidebarOpen = $state(false);
   let compressEnabled = $state(true);
+  let settingsExpanded = $state(false);
   /**
    * Resample an image to ~150 DPI (max 1200px on long side), keeping aspect ratio.
    * @param {Uint8Array|ArrayBuffer} imageBytes - Raw image bytes.
@@ -348,216 +349,6 @@
     files = [];
   }
 
-  async function handleExport() {
-    if (files.length === 0 || isExporting) return;
-    try {
-      isExporting = true;
-      showSuccess = false;
-      exportProgress = 0;
-
-      const { PDFDocument, rgb, degrees, StandardFonts } = await import('pdf-lib');
-      const mergedPdf = await PDFDocument.create();
-      
-      // Embed fonts once outside the loop for performance
-      const font = await mergedPdf.embedFont(StandardFonts.Helvetica);
-      const fontBold = await mergedPdf.embedFont(StandardFonts.HelveticaBold);
-      const fontChapter = await mergedPdf.embedFont(StandardFonts.TimesRomanBold);
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-
-        if (file.type === 'chapter') {
-          // --- CHAPTER LOGIC ---
-          const page = mergedPdf.addPage([600, 800]);
-          const { width, height } = page.getSize();
-          const title = typeof file.title === 'string' ? file.title : 'Section';
-          
-          page.drawRectangle({
-            x: 0, y: 0, width, height,
-            color: (i % 2 === 0) ? rgb(0.97, 0.95, 0.92) : rgb(0.12, 0.10, 0.09)
-          });
-
-          page.drawText(title.toUpperCase(), {
-            x: 50,
-            y: height / 2,
-            size: 32,
-            font: fontChapter,
-            color: (i % 2 === 0) ? rgb(0.12, 0.10, 0.09) : rgb(0.97, 0.95, 0.92)
-          });
-
-        } else if (file.type === 'word') {
-          // --- WORD/HTML LOGIC (PHASE 4 EXPANSION) ---
-          const container = document.createElement('div');
-          container.innerHTML = file.previewHtml || "";
-          
-          // Layout Constants - Adjusted for better visual density
-          const fontSize = 11;
-          const lineHeight = 16; // Increased from 14 for better breathing room
-          const margin = 50;
-          const pageHeight = 841.89; 
-          const pageWidth = 595.28; // Standard A4
-          const maxWidth = pageWidth - (margin * 2);
-          const printableHeight = pageHeight - (margin * 2);
-
-          const allContentObjects = [];
-          const elements = Array.from(container.querySelectorAll('p, img, h1, h2, li, div'));
-
-          for (const el of elements) {
-            if (el.tagName === 'IMG') {
-              allContentObjects.push({ type: 'image', src: (el as HTMLImageElement).src, height: 160 });
-            } else {
-              const text = el.textContent?.trim() || "";
-              if (!text) continue;
-
-              const words = text.split(/\s+/);
-              let currentLine = "";
-
-              words.forEach(word => {
-                const testLine = currentLine ? `${currentLine} ${word}` : word;
-                const width = font.widthOfTextAtSize(testLine, fontSize);
-                
-                if (width < maxWidth) {
-                  currentLine = testLine;
-                } else {
-                  allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight });
-                  currentLine = word;
-                }
-              });
-              // End of paragraph spacing (lineHeight + gap)
-              allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight + 10 }); 
-            }
-          }
-
-          // Virtual Pagination
-          let virtualPages: any[][] = [[]];
-          let currentPageHeight = 0;
-          let pageIdx = 0;
-
-          for (const item of allContentObjects) {
-            if (currentPageHeight + item.height > printableHeight) {
-              virtualPages.push([]);
-              pageIdx++;
-              currentPageHeight = 0;
-            }
-            virtualPages[pageIdx].push(item);
-            currentPageHeight += item.height;
-          }
-
-          // Selection Logic (Sidebar Sync)
-          const allowedPages = (file.selectionType === 'custom' && file.pageSelection)
-            ? parsePageRanges(file.pageSelection, virtualPages.length)
-            : Array.from({ length: virtualPages.length }, (_, idx) => idx + 1);
-
-          // Drawing
-          for (let j = 0; j < virtualPages.length; j++) {
-            if (allowedPages.includes(j + 1)) {
-              const page = mergedPdf.addPage([pageWidth, pageHeight]);
-              let currentY = pageHeight - margin;
-
-              for (const item of virtualPages[j]) {
-                if (item.type === 'image') {
-                  try {
-                    const imgData = await fetch(item.src).then(res => res.arrayBuffer());
-                    const image = item.src.includes('png') ? await mergedPdf.embedPng(imgData) : await mergedPdf.embedJpg(imgData);
-                    const dims = image.scaleToFit(maxWidth, 150);
-                    
-                    page.drawImage(image, {
-                      x: margin,
-                      y: currentY - dims.height,
-                      width: dims.width,
-                      height: dims.height,
-                    });
-                    currentY -= (dims.height + 20); 
-                  } catch (e) {
-                    console.error("Image export failed", e);
-                  }
-                } else if (item.content.trim()) {
-                  page.drawText(item.content, {
-                    x: margin,
-                    y: currentY - fontSize, // Anchor to baseline
-                    size: fontSize,
-                    font: font,
-                  });
-                  currentY -= (item.height > lineHeight) ? item.height : lineHeight;
-                }
-              }
-            }
-          }
-
-        } else {
-          // --- PDF LOGIC ---
-          if (file.rawFile) {
-            const pdfBytes = await file.rawFile.arrayBuffer();
-            const pdf = await PDFDocument.load(pdfBytes);
-            const maxPages = pdf.getPageCount();
-            let indices: number[] = [];
-
-            if (file.selectionType === 'custom' && file.pageSelection) {
-              indices = parsePageRanges(file.pageSelection, maxPages).map(n => n - 1);
-            } else {
-              indices = Array.from({length: maxPages}, (_, idx) => idx);
-            }
-
-            if (indices.length > 0) {
-              const copiedPages = await mergedPdf.copyPages(pdf, indices);
-              copiedPages.forEach((page) => mergedPdf.addPage(page));
-            }
-          }
-        }
-        exportProgress = Math.round(((i + 1) / files.length) * 100);
-      }
-
-      // --- PHASE 5: WATERMARK OVERLAYS ---
-      if (activeWatermark !== 'NONE') {
-        const style = watermarkStyles[activeWatermark];
-        const watermarkFont = fontBold;
-        const pages = mergedPdf.getPages();
-
-        pages.forEach((page) => {
-          const { width, height } = page.getSize();
-          page.drawText(style.text, {
-            x: width / 4,
-            y: height / 3,
-            size: 70,
-            font: watermarkFont,
-            color: rgb(0.5, 0.5, 0.5), 
-            rotate: degrees(45),
-            opacity: style.opacity || 0.3,
-          });
-        });
-      }
-
-      // --- FINAL EXPORT & DOWNLOAD ---
-      await optimizeMetadataAndImages(mergedPdf, compressEnabled);
-      const mergedPdfBytes = await mergedPdf.save({ useObjectStreams: compressEnabled });
-      
-      const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
-      const exportUrl = URL.createObjectURL(blob);
-      const fileName = `ArchiveStream_${Date.now()}.pdf`;
-      
-      const link = document.createElement('a');
-      link.href = exportUrl;
-      link.download = fileName;
-      link.click();
-
-      // Update Local History (Phase 3 Optimization)
-      exportHistory = [{
-        name: fileName,
-        date: new Date().toLocaleDateString(undefined, { 
-          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
-        }),
-        url: exportUrl
-      }, ...exportHistory].slice(0, 5);
-
-      showSuccess = true;
-      setTimeout(() => { isExporting = false; showSuccess = false; }, 2500);
-
-    } catch (err) {
-      console.error("Export Failed:", err);
-      alert("Error combining documents. Check console.");
-      isExporting = false;
-    }
-  }
   // Define our available watermark types
   type WatermarkType = 'NONE' | 'DRAFT' | 'CONFIDENTIAL' | 'APPROVED';
 
@@ -565,9 +356,10 @@
 
   const watermarkStyles = {
       DRAFT: { text: 'DRAFT', color: 'rgb(0.7, 0.7, 0.7)', opacity: 0.3 },
-      CONFIDENTIAL: { text: 'CONFIDENTIAL', color: 'rgb(0.8, 0.2, 0.2)', opacity: 0.5 },
+      CONFIDENTIAL: { text: 'CONFIDENTIAL', color: 'rgb(0.8, 0.2, 0.2)', opacity: 0.3 },
       APPROVED: { text: 'APPROVED', color: 'rgb(0.2, 0.6, 0.2)', opacity: 0.3 }
   };
+  
   async function applyWatermarks(pdfDoc: PDFDocument) {
     if (activeWatermark === 'NONE') return;
 
@@ -589,6 +381,312 @@
         });
     });
   }
+  
+  function resetToDefault() {
+  applyPreset('corporate');
+  // Optional: Force a UI refresh if your framework needs it
+  console.log("Theme reset to Corporate baseline");
+  }
+  
+  let globalTheme = $state({
+    preset: 'corporate',
+    fontFamily: 'Helvetica', 
+    // Added 'hex' for the UI color pickers
+    // Updated R,G,B to 255-scale for easier conversion
+    primaryColor: { hex: '#000000', r: 0, g: 0, b: 0 },
+    accentColor: { hex: '#FFFFFF', r: 255, g: 255, b: 255 }, 
+    chapterFontSize: 32,
+    bodyFontSize: 11,
+    lineHeight: 16
+  });
+  
+  function updateThemeColor(type, hex) {
+    // 1. Convert Hex (#ffffff) to 0-255 RGB
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    
+    // 2. Update the state so handleExport sees it
+    // We keep the hex string too so the color picker stays synced
+    globalTheme[type] = { hex, r, g, b };
+    
+    // 3. Clear the preset name since we are now "Custom"
+    globalTheme.preset = 'custom';
+  }
+
+  function applyPreset(presetName) {
+    globalTheme.preset = presetName;
+
+    switch (presetName) {
+      case 'corporate':
+      case 'default':
+        globalTheme.fontFamily = 'Helvetica';
+        globalTheme.primaryColor = { hex: '#000000', r: 0, g: 0, b: 0 };
+        globalTheme.accentColor = { hex: '#FFFFFF', r: 255, g: 255, b: 255 }; // Pure White
+        globalTheme.chapterFontSize = 32;
+        globalTheme.bodyFontSize = 11;
+        break;
+
+      case 'atelier':
+        globalTheme.fontFamily = 'TimesRoman';
+        // Added Hex + R,G,B (Stone-600 / Stone-50)
+        globalTheme.primaryColor = { hex: '#78716c', r: 120, g: 113, b: 108 };
+        globalTheme.accentColor = { hex: '#fafaf9', r: 250, g: 250, b: 249 };
+        globalTheme.chapterFontSize = 40;
+        globalTheme.bodyFontSize = 12;
+        break;
+
+      case 'midnight':
+        globalTheme.fontFamily = 'Courier';
+        // Added Hex + R,G,B (Zinc-950 / Lime-200)
+        globalTheme.primaryColor = { hex: '#09090b', r: 9, g: 9, b: 11 };
+        globalTheme.accentColor = { hex: '#d9f99d', r: 217, g: 249, b: 157 };
+        globalTheme.chapterFontSize = 36;
+        globalTheme.bodyFontSize = 10;
+        break;
+    }
+  }
+
+  async function handleExport() {
+  if (files.length === 0 || isExporting) return;
+  
+  try {
+    isExporting = true;
+    showSuccess = false;
+    exportProgress = 0;
+
+    const { PDFDocument, rgb, degrees, StandardFonts } = await import('pdf-lib');
+    const mergedPdf = await PDFDocument.create();
+    
+    // --- BRANDING SETUP ---
+    // Helper to ensure colors are 0-1 range
+    const norm = (val) => (val > 1 ? val / 255 : val);
+    
+    const themePrimary = rgb(
+      norm(globalTheme.primaryColor.r), 
+      norm(globalTheme.primaryColor.g), 
+      norm(globalTheme.primaryColor.b)
+    );
+    const themeAccent = rgb(
+      norm(globalTheme.accentColor.r), 
+      norm(globalTheme.accentColor.g), 
+      norm(globalTheme.accentColor.b)
+    );
+
+    // Font Handling
+    const fontName = globalTheme.fontFamily || 'Helvetica';
+    const font = await mergedPdf.embedFont(StandardFonts[fontName]);
+    
+    const boldVariants = [`${fontName.replace('-', '')}Bold`, `${fontName}-Bold`, `${fontName}Bold` ];
+    let fontBold;
+    for (const variant of boldVariants) {
+      if (StandardFonts[variant]) {
+        fontBold = await mergedPdf.embedFont(StandardFonts[variant]);
+        break; 
+      }
+    }
+    if (!fontBold) fontBold = await mergedPdf.embedFont(StandardFonts.HelveticaBold);
+
+    // --- MAIN PROCESSING LOOP ---
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+
+      if (file.type === 'chapter') {
+        /**
+         * CHAPTER LOGIC (Phase 2: Professional Export)
+         * Purpose: Acts as a high-impact brand separator.
+         */
+        const page = mergedPdf.addPage([600, 800]);
+        const { width, height } = page.getSize();
+        const title = typeof file.title === 'string' ? file.title : 'Section';
+        
+        // Background = Brand Accent (Paper)
+        page.drawRectangle({
+          x: 0, y: 0, width, height,
+          color: themeAccent 
+        });
+
+        // Text = Brand Primary (Ink)
+        page.drawText(title.toUpperCase(), {
+          x: 50,
+          y: height / 2,
+          size: globalTheme.chapterFontSize || 32,
+          font: fontBold,
+          color: themePrimary 
+        });
+
+      } else if (file.type === 'word') {
+        /**
+         * WORD/HTML LOGIC (Phase 4: Expansion)
+         * Purpose: Renders editable content with consistent branding.
+         */
+        const container = document.createElement('div');
+        container.innerHTML = file.previewHtml || "";
+        
+        const fontSize = globalTheme.bodyFontSize || 11;
+        const lineHeight = globalTheme.lineHeight || 16; 
+        const margin = 50;
+        const pageHeight = 841.89; 
+        const pageWidth = 595.28; 
+        const maxWidth = pageWidth - (margin * 2);
+        const printableHeight = pageHeight - (margin * 2);
+
+        // 1. Text Wrapping Logic
+        const allContentObjects = [];
+        const elements = Array.from(container.querySelectorAll('p, img, h1, h2, li, div'));
+
+        for (const el of elements) {
+          if (el.tagName === 'IMG') {
+            allContentObjects.push({ type: 'image', src: el.src, height: 160 });
+          } else {
+            const text = el.textContent?.trim() || "";
+            if (!text) continue;
+            const words = text.split(/\s+/);
+            let currentLine = "";
+            words.forEach(word => {
+              const testLine = currentLine ? `${currentLine} ${word}` : word;
+              const width = font.widthOfTextAtSize(testLine, fontSize);
+              if (width < maxWidth) { 
+                currentLine = testLine; 
+              } else {
+                allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight });
+                currentLine = word;
+              }
+            });
+            allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight + 10 }); 
+          }
+        }
+
+        // 2. Pagination Logic
+        let virtualPages = [[]];
+        let currentPageHeight = 0;
+        let pageIdx = 0;
+        for (const item of allContentObjects) {
+          if (currentPageHeight + item.height > printableHeight) {
+            virtualPages.push([]);
+            pageIdx++;
+            currentPageHeight = 0;
+          }
+          virtualPages[pageIdx].push(item);
+          currentPageHeight += item.height;
+        }
+
+        // 3. Selective Range (Phase 1)
+        const allowedPages = (file.selectionType === 'custom' && file.pageSelection)
+          ? parsePageRanges(file.pageSelection, virtualPages.length)
+          : Array.from({ length: virtualPages.length }, (_, idx) => idx + 1);
+
+        // 4. Draw to PDF
+        for (let j = 0; j < virtualPages.length; j++) {
+          if (allowedPages.includes(j + 1)) {
+            const page = mergedPdf.addPage([pageWidth, pageHeight]);
+            
+            // Draw "Digital Paper" Background (Except for Corporate)
+            if (globalTheme.preset !== 'corporate') {
+              page.drawRectangle({ 
+                x: 0, y: 0, width: pageWidth, height: pageHeight, 
+                color: themeAccent 
+              });
+            }
+
+            let currentY = pageHeight - margin;
+            for (const item of virtualPages[j]) {
+              if (item.type === 'image') {
+                try {
+                  const imgData = await fetch(item.src).then(res => res.arrayBuffer());
+                  const image = item.src.includes('png') ? await mergedPdf.embedPng(imgData) : await mergedPdf.embedJpg(imgData);
+                  const dims = image.scaleToFit(maxWidth, 150);
+                  page.drawImage(image, {
+                    x: margin, y: currentY - dims.height,
+                    width: dims.width, height: dims.height,
+                  });
+                  currentY -= (dims.height + 20); 
+                } catch (e) { console.error("Image export failed", e); }
+              } else if (item.content.trim()) {
+                page.drawText(item.content, {
+                  x: margin, y: currentY - fontSize,
+                  size: fontSize, font: font,
+                  color: themePrimary, // Brand Ink
+                });
+                const spacing = (globalTheme.preset === 'atelier') ? 2 : 0;
+                currentY -= (item.height > lineHeight) ? item.height + spacing : lineHeight + spacing;
+              }
+            }
+          }
+        }
+      } else {
+        /**
+         * STANDARD PDF LOGIC (Phase 1: Organization)
+         * Purpose: Merges existing PDF files with range selection.
+         */
+        if (file.rawFile) {
+          const pdfBytes = await file.rawFile.arrayBuffer();
+          const pdf = await PDFDocument.load(pdfBytes);
+          const maxPages = pdf.getPageCount();
+          let indices = (file.selectionType === 'custom' && file.pageSelection)
+            ? parsePageRanges(file.pageSelection, maxPages).map(n => n - 1)
+            : Array.from({length: maxPages}, (_, idx) => idx);
+
+          if (indices.length > 0) {
+            const copiedPages = await mergedPdf.copyPages(pdf, indices);
+            copiedPages.forEach((page) => mergedPdf.addPage(page));
+          }
+        }
+      }
+      exportProgress = Math.round(((i + 1) / files.length) * 100);
+    }
+
+    // --- WATERMARK OVERLAYS ---
+    if (activeWatermark !== 'NONE') {
+      const style = watermarkStyles[activeWatermark];
+      const pages = mergedPdf.getPages();
+      pages.forEach((page) => {
+        const { width, height } = page.getSize();
+        page.drawText(style.text, {
+          x: width / 4, y: height / 3,
+          size: 70, font: fontBold,
+          color: themePrimary, // Watermark uses Brand Primary
+          rotate: degrees(45),
+          opacity: style.opacity || 0.15,
+        });
+      });
+    }
+
+    // --- FINAL EXPORT & DOWNLOAD ---
+    // Metadata Optimization (Phase 3)
+    if (typeof optimizeMetadataAndImages === 'function') {
+      await optimizeMetadataAndImages(mergedPdf, !!compressEnabled);
+    }
+    
+    const mergedPdfBytes = await mergedPdf.save({ useObjectStreams: !!compressEnabled });
+    const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
+    const exportUrl = URL.createObjectURL(blob);
+    const fileName = `ArchiveStream_${Date.now()}.pdf`;
+    
+    const link = document.createElement('a');
+    link.href = exportUrl;
+    link.download = fileName;
+    link.click();
+
+    // Export History (Phase 3)
+    exportHistory = [{
+      name: fileName,
+      date: new Date().toLocaleDateString(undefined, { 
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+      }),
+      url: exportUrl
+    }, ...exportHistory].slice(0, 5);
+
+    showSuccess = true;
+    setTimeout(() => { isExporting = false; showSuccess = false; }, 2500);
+
+  } catch (err) {
+    console.error("Export Failed:", err);
+    alert("Error combining documents. Please check the console.");
+    isExporting = false;
+  }
+}
+
 </script>
 
 {#if menuVisible}
@@ -775,24 +873,152 @@
       {/if}
     </div>
     
-    <div class="px-4 py-6 border-t {isDark ? 'border-stone-800' : 'border-stone-100'}">
-      <p class="text-[10px] font-bold text-stone-500 uppercase tracking-widest mb-4">Template Overlays</p>
-  
-        <div class="grid grid-cols-2 gap-2">
-        {#each ['NONE', 'DRAFT', 'CONFIDENTIAL', 'APPROVED'] as type}
-          <button 
-          onclick={() => activeWatermark = type}
-          class="py-2 px-1 rounded-lg border text-[9px] font-black uppercase tracking-tighter transition-all
-          {activeWatermark === type 
-          ? 'bg-amber-600 border-amber-600 text-white shadow-lg shadow-amber-900/20' 
-          : (isDark ? 'bg-stone-900 border-stone-800 text-stone-500 hover:border-stone-600' : 'bg-white border-stone-200 text-stone-400 hover:border-stone-300')}"
-          >
-            {type}
-          </button>
-        {/each}
+    <div class="border-t {isDark ? 'border-stone-800' : 'border-stone-100'}">
+      <button 
+        onclick={() => settingsExpanded = !settingsExpanded}
+        class="w-full px-4 py-4 flex justify-between items-center group transition-colors {isDark ? 'hover:bg-stone-900' : 'hover:bg-stone-50'}"
+      >
+        <p class="text-[10px] font-bold text-stone-500 uppercase tracking-widest">
+          Design & Overlays
+        </p>
+        <div class="transition-transform duration-300 {settingsExpanded ? 'rotate-0' : 'rotate-180'}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 9l-7 7-7-7" />
+          </svg>
         </div>
-      </div>
+      </button>
 
+      {#if settingsExpanded}
+        <div class="px-4 pb-6 space-y-6">
+          
+          <div>
+            <p class="text-[9px] font-bold text-stone-400 uppercase tracking-tighter mb-2 italic">Template Overlays</p>
+            <div class="grid grid-cols-2 gap-2">
+              {#each ['NONE', 'DRAFT', 'CONFIDENTIAL', 'APPROVED'] as type}
+                <button 
+                  onclick={() => activeWatermark = type}
+                  class="py-2 px-1 rounded-lg border text-[9px] font-black uppercase tracking-tighter transition-all
+                  {activeWatermark === type 
+                    ? 'bg-amber-600 border-amber-600 text-white shadow-lg' 
+                    : (isDark ? 'bg-stone-900 border-stone-800 text-stone-500 hover:border-stone-600' : 'bg-white border-stone-200 text-stone-400 hover:border-stone-300')}"
+                >
+                  {type}
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <div class="space-y-4">
+            <p class="text-[9px] font-bold text-stone-400 uppercase tracking-tighter mb-2 italic border-t {isDark ? 'border-stone-800' : 'border-stone-100'} pt-4">
+               Design Atelier <span class="opacity-70 ml-1"> (Only works for docx and chapter)</span>
+            </p>
+            
+            <div>
+              <label class="block text-[9px] font-bold text-stone-500 uppercase mb-1">Typography</label>
+              <select 
+                bind:value={globalTheme.fontFamily}
+                class="w-full p-2 text-[10px] font-bold rounded-lg border outline-none transition-all
+                {isDark ? 'bg-stone-900 border-stone-800 text-stone-300' : 'bg-stone-50 border-stone-200 text-stone-700'}"
+              >
+                <option value="Helvetica">Modern Sans</option>
+                <option value="TimesRoman">Classic Serif</option> 
+                <option value="Courier">Technical Mono</option>
+              </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[8px] font-bold text-stone-400 uppercase mb-1 tracking-tight">Ink</label>
+                <div class="relative w-full h-6 rounded-md border border-stone-200 overflow-hidden group shadow-sm hover:border-stone-400 transition-colors">
+                  <input 
+                    type="color" 
+                    value={globalTheme.primaryColor.hex} 
+                    oninput={(e) => updateThemeColor('primaryColor', e.currentTarget.value)} 
+                    class="absolute -top-3 -left-1 w-[200%] h-[200%] cursor-pointer bg-transparent border-none outline-none appearance-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-[8px] font-bold text-stone-400 uppercase mb-1 tracking-tight">Paper</label>
+                <div class="relative w-full h-6 rounded-md border border-stone-200 overflow-hidden group shadow-sm hover:border-stone-400 transition-colors">
+                  <input 
+                    type="color" 
+                    value={globalTheme.accentColor.hex} 
+                    oninput={(e) => updateThemeColor('accentColor', e.currentTarget.value)} 
+                    class="absolute -top-3 -left-1 w-[200%] h-[200%] cursor-pointer bg-transparent border-none outline-none appearance-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+           <div class="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+              {#each ['corporate', 'atelier', 'midnight'] as presetName}
+                {@const isActive = globalTheme.preset === presetName}
+                <button 
+                  onclick={() => applyPreset(presetName)}
+                  class="whitespace-nowrap px-2 py-1 text-[9px] font-black uppercase rounded-md border transition-all
+                  {isActive 
+                    ? 'border-amber-500/50 text-amber-500 bg-amber-500/5' 
+                    : (isDark ? 'bg-stone-900 border-stone-800 text-stone-400 hover:text-amber-500' : 'bg-stone-50 border-stone-200 text-stone-500 hover:text-amber-600')}"
+                >
+                  {presetName === 'corporate' ? 'DEFAULT' : presetName}
+                </button>
+              {/each}
+            </div>
+            <div class="mt-4 p-4 rounded-xl border border-stone-200 bg-white shadow-inner">
+              <p class="text-[9px] font-bold text-stone-400 uppercase tracking-widest mb-3">Live Export Preview</p>
+              
+              <div 
+                class="aspect-[3/4] w-full max-w-[180px] mx-auto shadow-lg rounded-sm border border-stone-100 transition-all duration-300 flex flex-col p-4 overflow-hidden"
+                style="background-color: {globalTheme.accentColor.hex};"
+              >
+                <div 
+                  class="w-1/2 h-1 mb-6 opacity-40 rounded-full" 
+                  style="background-color: {globalTheme.primaryColor.hex};"
+                ></div>
+
+                <h1 
+                  class="leading-tight transition-colors duration-300 mb-2"
+                  style="
+                    color: {globalTheme.primaryColor.hex}; 
+                    font-family: {globalTheme.fontFamily}; 
+                    font-size: {globalTheme.chapterFontSize / 5}px;
+                  "
+                >
+                  The Archive
+                </h1>
+                
+                <div 
+                  class="w-full h-[0.5px] mb-4 opacity-20" 
+                  style="background-color: {globalTheme.primaryColor.hex};"
+                ></div>
+                
+                <div class="space-y-1.5">
+                  {#each [1, 2, 3, 4, 5] as _, i}
+                    <div 
+                      class="h-[2px] rounded-full" 
+                      style="
+                        background-color: {globalTheme.primaryColor.hex}; 
+                        width: {i === 4 ? '60%' : '100%'};
+                        opacity: 0.5;
+                      "
+                    ></div>
+                  {/each}
+                </div>
+              </div>
+              
+              <div class="mt-3 text-center">
+                <span class="text-[10px] text-stone-400 font-medium">
+                  {globalTheme.fontFamily} — {globalTheme.bodyFontSize}pt
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      {/if}
+    </div>
+    
     <div class="p-4 md:p-6">
       <button onclick={() => fileInput.click()} class="w-full py-3 {isDark ? 'bg-stone-900 hover:bg-stone-800 text-stone-200 border-stone-800' : 'bg-white hover:bg-stone-50 text-stone-900 border-stone-200'} rounded-xl text-[10px] uppercase tracking-widest font-bold border transition-all">
         Import PDF
