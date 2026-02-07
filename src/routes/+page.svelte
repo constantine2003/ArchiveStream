@@ -216,6 +216,7 @@
     // 2. Update the state once at the end
     files = [...files, ...newFilesToAppend];
   }
+  
   async function generateCombinedPdf() {
   try {
     const { PDFDocument, StandardFonts } = await import('pdf-lib');
