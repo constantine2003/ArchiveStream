@@ -4,6 +4,9 @@
   import { PDFDocument } from 'pdf-lib';
   import { rgb, degrees, StandardFonts } from 'pdf-lib';
   import  mammoth  from 'mammoth';
+  import { slide } from 'svelte/transition';
+  import { quintOut } from 'svelte/easing';
+
   // --- State Management ---
   type FileItem = {
     id: number | string;
@@ -890,7 +893,10 @@
       </button>
 
       {#if settingsExpanded}
-        <div class="px-4 pb-6 space-y-6">
+        <div 
+        transition:slide={{ duration: 400, easing: quintOut }}
+        class="px-4 pb-3 space-y-6 overflow-hidden"
+        >
           
           <div>
             <p class="text-[9px] font-bold text-stone-400 uppercase tracking-tighter mb-2 italic">Template Overlays</p>
@@ -1135,7 +1141,7 @@
                     </span>
                     <div class="h-px flex-1 {isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
                   </div>
-                  <div class="bg-white rounded-xl shadow-2xl p-8 md:p-16 prose prose-stone">
+                  <div class="bg-white shadow-lg mx-auto p-[50px] min-h-[841px] w-[595px] text-left">
                     {@html file.previewHtml}
                   </div>
                 </section>
@@ -1278,4 +1284,19 @@
   .custom-scrollbar::-webkit-scrollbar { width: 4px; }
   .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
   .custom-scrollbar::-webkit-scrollbar-thumb { background: #44403c; border-radius: 10px; }
+    /* Target the container where you render {@html file.previewHtml} */
+  .word-preview-container :global(table) {
+    width: 100% !important;
+    table-layout: fixed; /* This forces columns to stay within the width */
+    border-collapse: collapse;
+    margin-bottom: 1rem;
+  }
+
+  .word-preview-container :global(td), 
+  .word-preview-container :global(th) {
+    border: 1px solid #ddd;
+    padding: 8px;
+    word-wrap: break-word; /* Forces long text to wrap instead of pushing the wall */
+    overflow-wrap: break-word;
+  }
 </style>
