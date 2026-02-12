@@ -767,30 +767,30 @@
     }
   }
   
-  async function generateAndDownloadQR() {
-    if (!globalTheme.qrUrl) {
-        // Tip: You can use a temporary placeholder for testing
-        alert("Enter the download link (e.g. your Google Drive link) in the sidebar first!");
-        return;
-    }
+  // async function generateAndDownloadQR() {
+  //   if (!globalTheme.qrUrl) {
+  //       // Tip: You can use a temporary placeholder for testing
+  //       alert("Enter the download link (e.g. your Google Drive link) in the sidebar first!");
+  //       return;
+  //   }
 
-    const QRCode = await import('qrcode');
+  //   const QRCode = await import('qrcode');
     
-    // We generate the QR with a 'Download' hint in the filename
-    const dataUrl = await QRCode.toDataURL(globalTheme.qrUrl, {
-        width: 1024,
-        margin: 4,
-        color: {
-            dark: '#000000', // Black is best for phone cameras to scan quickly
-            light: '#ffffff'
-        }
-    });
+  //   // We generate the QR with a 'Download' hint in the filename
+  //   const dataUrl = await QRCode.toDataURL(globalTheme.qrUrl, {
+  //       width: 1024,
+  //       margin: 4,
+  //       color: {
+  //           dark: '#000000', // Black is best for phone cameras to scan quickly
+  //           light: '#ffffff'
+  //       }
+  //   });
 
-    const link = document.createElement('a');
-    link.href = dataUrl;
-    link.download = `SCAN_TO_DOWNLOAD_ARCHIVE.png`;
-    link.click();
-  }
+  //   const link = document.createElement('a');
+  //   link.href = dataUrl;
+  //   link.download = `SCAN_TO_DOWNLOAD_ARCHIVE.png`;
+  //   link.click();
+  // }
 </script>
 
 {#if menuVisible}
