@@ -1278,7 +1278,7 @@
                     </span>
                     <div class="h-px flex-1 {isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
                   </div>
-                  <div class="bg-white shadow-lg mx-auto p-12.5 min-h-210.25 w-148.75 text-left">
+                  <div class="bg-white shadow-lg mx-auto p-12.5 min-h-210.25 w-200.75 text-left">
                     {@html file.previewHtml}
                   </div>
                 </section>
