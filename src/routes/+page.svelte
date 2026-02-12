@@ -738,7 +738,61 @@
         await optimizeMetadataAndImages(mergedPdf, !!compressEnabled);
       }
       
+      // --- 1. GENERATE FINAL BYTES ---
       const mergedPdfBytes = await mergedPdf.save({ useObjectStreams: !!compressEnabled });
+
+      // --- 2. SUPABASE CLOUD UPLOAD ---
+      let publicDownloadUrl = "";
+      try {
+        // Create a record in your 'sessions' table
+        const { data: session, error: sError } = await supabase
+          .from('sessions')
+          .insert({})
+          .select()
+          .single();
+
+        if (sError) throw sError;
+
+        // --- NEW: LOG THE QUEUE ENTRIES ---
+        // This records every file in your current Atelier grid into the DB
+        const queueEntries = files.map((f, index) => ({
+            session_id: session.id,
+            file_name: f.name || (f.type === 'chapter' ? f.title : 'Untitled'),
+            file_size_kb: Math.round((f.rawFile?.size || 0) / 1024) || 0,
+            sort_order: index // This preserves your "Visual Grid Reordering"
+        }));
+
+        const { error: qError } = await supabase.from('document_queue').insert(queueEntries);
+        if (qError) console.error("Database Queue sync failed:", qError);
+        // ----------------------------------
+
+        const cloudFileName = `archive_${session.id}.pdf`;
+
+        // Upload to your 'archives' bucket
+        const { data: uploadData, error: uError } = await supabase.storage
+          .from('archives')
+          .upload(cloudFileName, mergedPdfBytes, {
+            contentType: 'application/pdf',
+            upsert: true
+          });
+
+        if (uError) throw uError;
+
+        // Get the link that the QR code will point to
+        const { data: { publicUrl } } = supabase.storage
+          .from('archives')
+          .getPublicUrl(cloudFileName);
+        
+        publicDownloadUrl = publicUrl;
+        
+        // Update your global theme so the QR generator uses this specific link
+        globalTheme.qrUrl = publicDownloadUrl;
+
+      } catch (cloudErr) {
+        console.error("Supabase Sync Failed (Local export will continue):", cloudErr);
+      }
+
+      // --- 3. TRIGGER LOCAL PDF DOWNLOAD ---
       const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
       const exportUrl = URL.createObjectURL(blob);
       const fileName = `ArchiveStream_${Date.now()}.pdf`;
@@ -748,13 +802,20 @@
       link.download = fileName;
       link.click();
 
-      // Export History (Phase 3)
+      // --- 4. TRIGGER QR ASSET DOWNLOAD ---
+      // This now uses the publicDownloadUrl from Supabase!
+      if (globalTheme.qrUrl) {
+          await generateAndDownloadQR(); 
+      }
+
+      // --- 5. FINALIZE ---
       exportHistory = [{
         name: fileName,
         date: new Date().toLocaleDateString(undefined, { 
           month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
         }),
-        url: exportUrl
+        url: exportUrl,
+        cloudUrl: publicDownloadUrl // Save the live link in history
       }, ...exportHistory].slice(0, 5);
 
       showSuccess = true;
@@ -767,30 +828,26 @@
     }
   }
   
-  // async function generateAndDownloadQR() {
-  //   if (!globalTheme.qrUrl) {
-  //       // Tip: You can use a temporary placeholder for testing
-  //       alert("Enter the download link (e.g. your Google Drive link) in the sidebar first!");
-  //       return;
-  //   }
-
-  //   const QRCode = await import('qrcode');
+  async function generateAndDownloadQR() {
+    const QRCode = await import('qrcode');
     
-  //   // We generate the QR with a 'Download' hint in the filename
-  //   const dataUrl = await QRCode.toDataURL(globalTheme.qrUrl, {
-  //       width: 1024,
-  //       margin: 4,
-  //       color: {
-  //           dark: '#000000', // Black is best for phone cameras to scan quickly
-  //           light: '#ffffff'
-  //       }
-  //   });
+    // We create a version that looks like a 'Stamp' or 'Certificate'
+    const canvas = document.createElement('canvas');
+    const dataUrl = await QRCode.toDataURL(globalTheme.qrUrl || "https://archive-stream-ashen.vercel.app/", {
+        width: 1024,
+        margin: 2,
+        color: {
+            dark: '#000000', 
+            light: '#ffffff'
+        }
+    });
 
-  //   const link = document.createElement('a');
-  //   link.href = dataUrl;
-  //   link.download = `SCAN_TO_DOWNLOAD_ARCHIVE.png`;
-  //   link.click();
-  // }
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    // Naming it 'LINK_TO_FILE' so they know what it's for
+    link.download = `QR_DOWNLOAD_BRIDGE.png`;
+    link.click();
+  }
 </script>
 
 {#if menuVisible}
@@ -1404,11 +1461,10 @@
               {isExporting ? 'Compressing...' : 'Export PDF'}
             </button>
             <button 
-              
+              onclick={generateAndDownloadQR}
               class="aspect-square h-13 flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0"
               title="Generate QR Asset"
             >
-            <!-- onclick={generateAndDownloadQR} -->
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="group-hover:rotate-90 transition-transform duration-300">
                 <rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/>
               </svg>
