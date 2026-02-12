@@ -405,17 +405,10 @@
   });
   
   function updateThemeColor(type, hex) {
-    // 1. Convert Hex (#ffffff) to 0-255 RGB
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
-    
-    // 2. Update the state so handleExport sees it
-    // We keep the hex string too so the color picker stays synced
     globalTheme[type] = { hex, r, g, b };
-    
-    // 3. Clear the preset name since we are now "Custom"
-    globalTheme.preset = 'custom';
   }
 
   function applyPreset(presetName) {
@@ -447,6 +440,15 @@
         globalTheme.accentColor = { hex: '#d9f99d', r: 217, g: 249, b: 157 };
         globalTheme.chapterFontSize = 36;
         globalTheme.bodyFontSize = 10;
+        break;
+
+      case 'brutalist':
+        globalTheme.preset = 'brutalist';
+        globalTheme.fontFamily = 'Helvetica'; // Stick to the base name
+        globalTheme.primaryColor = { hex: '#000000', r: 0, g: 0, b: 0 };
+        globalTheme.accentColor = { hex: '#ff3e00', r: 255, g: 62, b: 0 }; 
+        globalTheme.chapterFontSize = 48; // Big and bold for Brutalist
+        globalTheme.bodyFontSize = 11;
         break;
     }
   }
@@ -519,29 +521,25 @@
             : Array.from({ length: totalDocPages }, (_, idx) => idx + 1);
 
         if (file.type === 'chapter') {
-          /**
-           * CHAPTER LOGIC (Phase 2: Professional Export)
-           * Purpose: Acts as a high-impact brand separator.
-           */
           const page = mergedPdf.addPage([600, 800]);
           const { width, height } = page.getSize();
-          const title = typeof file.title === 'string' ? file.title : 'Section';
           
-          // Background = Brand Accent (Paper)
+          // Choose the font object based on preset
+          // If brutalist, we use the Bold version of the font we loaded earlier
+          const activeFont = globalTheme.preset === 'brutalist' ? fontBold : fontRegular;
+
           page.drawRectangle({
             x: 0, y: 0, width, height,
             color: themeAccent 
           });
 
-          // Text = Brand Primary (Ink)
           page.drawText(title.toUpperCase(), {
             x: 50,
             y: height / 2,
             size: globalTheme.chapterFontSize || 32,
-            font: fontBold,
+            font: activeFont, // This ensures it's bold without crashing the font name
             color: themePrimary 
           });
-
         } else if (file.type === 'word') {
             const worker = document.createElement('div');
             
@@ -570,34 +568,59 @@
             worker.style.printColorAdjust = "exact";
             // --------------------------------------------
 
-            worker.innerHTML = file.previewHtml || ""; 
+           worker.innerHTML = file.previewHtml || ""; 
             document.body.appendChild(worker);
+
+            // 1. APPLY THEME TO WORKER (The "Paper" and "Ink")
+            Object.assign(worker.style, {
+                backgroundColor: exportBg,
+                color: exportText,
+                webkitPrintColorAdjust: "exact", // Forces browsers to export background colors
+                printColorAdjust: "exact"
+            });
+
+            // 2. FORCE CHILDREN TO INHERIT THEME
+            // This ensures spans/paragraphs from Word don't stay black or blue
+            worker.querySelectorAll('*').forEach(el => {
+                if (el instanceof HTMLElement) {
+                    el.style.color = 'inherit';
+                    el.style.borderColor = 'currentColor';
+                }
+            });
 
             // 3. CLEAN UP TABLES (The "Professional" Touch)
             worker.querySelectorAll('table').forEach(table => {
                 table.style.width = "100%";
                 table.style.borderCollapse = "collapse";
                 table.style.marginBottom = "20px";
+                table.style.backgroundColor = "transparent"; // Ensure no white backgrounds
                 
-                // Ensure table borders use the theme's ink color
                 table.querySelectorAll('td, th').forEach(cell => {
+                    // Using exportText directly ensures borders match your theme's ink
                     cell.style.border = `1px solid ${exportText}`; 
                     cell.style.padding = "8px";
                 });
             });
 
+            // 4. CLEAN UP IMAGES
             worker.querySelectorAll('img').forEach(img => {
                 img.style.maxWidth = "100%";
                 img.style.height = "auto";
                 img.style.display = "block";
                 img.style.margin = "20px auto";
+                // Optional: makes white backgrounds in images transparent to show your paper color
+                img.style.mixBlendMode = "multiply"; 
             });
 
             // 4. THE EXPORT
             const opt = {
                 margin: 0.5,
                 image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2, useCORS: true },
+                html2canvas: { 
+                    scale: 2, 
+                    useCORS: true,
+                    backgroundColor: exportBg // This ensures the 'snapshot' isn't transparent
+                },
                 jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
                 pagebreak: { mode: ['avoid-all'] }
             };
@@ -925,108 +948,121 @@
             </div>
           </div>
 
-          <div class="space-y-4">
-            <p class="text-[9px] font-bold text-stone-400 uppercase tracking-tighter mb-2 italic border-t {isDark ? 'border-stone-800' : 'border-stone-100'} pt-4">
-               Design Atelier <span class="opacity-70 ml-1"> (Only works for docx and chapter)</span>
+          <div class="space-y-3 sm:space-y-4 max-w-full overflow-hidden">
+            <p class="text-[9px] font-bold text-stone-400 uppercase tracking-tighter mb-1 italic border-t {isDark ? 'border-stone-800' : 'border-stone-100'} pt-3">
+              Design Atelier <span class="opacity-70 ml-1"> (Docx & Chapters)</span>
             </p>
             
-            <div>
-              <label class="block text-[9px] font-bold text-stone-500 uppercase mb-1">Typography</label>
+            <div class="px-1">
+              <label class="block text-[8px] font-bold text-stone-500 uppercase mb-1">Typography</label>
               <select 
                 bind:value={globalTheme.fontFamily}
                 class="w-full p-2 text-[10px] font-bold rounded-lg border outline-none transition-all
                 {isDark ? 'bg-stone-900 border-stone-800 text-stone-300' : 'bg-stone-50 border-stone-200 text-stone-700'}"
               >
-                <option value="Helvetica">Modern Sans</option>
-                <option value="TimesRoman">Classic Serif</option> 
-                <option value="Courier">Technical Mono</option>
+                <optgroup label="Sans Serif (Clean)">
+                  <option value="Helvetica">Modern Sans</option>
+                  <option value="Helvetica-Bold">Modern Bold</option>
+                  <option value="Helvetica-Oblique">Modern Italic</option>
+                </optgroup>
+                
+                <optgroup label="Serif (Elegant)">
+                  <option value="Times-Roman">Classic Serif</option> 
+                  <option value="Times-Bold">Classic Bold</option>
+                  <option value="Times-Italic">Classic Italic</option>
+                </optgroup>
+
+                <optgroup label="Monospace (Code)">
+                  <option value="Courier">Technical Mono</option>
+                  <option value="Courier-Bold">Technical Bold</option>
+                </optgroup>
+
+                <optgroup label="Decorative">
+                  <option value="Symbol">Symbolic</option>
+                  <option value="ZapfDingbats">Ornaments</option>
+                </optgroup>
               </select>
             </div>
+            
+            <div class="px-1 py-1">
+              <p class="text-[7px] sm:text-[8px] leading-tight font-medium text-amber-600/80 uppercase tracking-widest flex items-center gap-1">
+                <span class="w-1 h-1 rounded-full bg-amber-500 animate-pulse"></span>
+                Note: Color & Paper adjustments only apply to Chapter Pages
+              </p>
+            </div>
 
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-2 gap-2 px-1">
               <div>
                 <label class="block text-[8px] font-bold text-stone-400 uppercase mb-1 tracking-tight">Ink</label>
-                <div class="relative w-full h-6 rounded-md border border-stone-200 overflow-hidden group shadow-sm hover:border-stone-400 transition-colors">
+                <div class="relative w-full h-5 rounded-md border border-stone-200 overflow-hidden shadow-sm">
                   <input 
                     type="color" 
                     value={globalTheme.primaryColor.hex} 
                     oninput={(e) => updateThemeColor('primaryColor', e.currentTarget.value)} 
-                    class="absolute -top-3 -left-1 w-[200%] h-[200%] cursor-pointer bg-transparent border-none outline-none appearance-none"
+                    class="absolute -top-3 -left-1 w-[200%] h-[200%] cursor-pointer appearance-none"
                   />
                 </div>
               </div>
 
               <div>
                 <label class="block text-[8px] font-bold text-stone-400 uppercase mb-1 tracking-tight">Paper</label>
-                <div class="relative w-full h-6 rounded-md border border-stone-200 overflow-hidden group shadow-sm hover:border-stone-400 transition-colors">
+                <div class="relative w-full h-5 rounded-md border border-stone-200 overflow-hidden shadow-sm">
                   <input 
                     type="color" 
                     value={globalTheme.accentColor.hex} 
                     oninput={(e) => updateThemeColor('accentColor', e.currentTarget.value)} 
-                    class="absolute -top-3 -left-1 w-[200%] h-[200%] cursor-pointer bg-transparent border-none outline-none appearance-none"
+                    class="absolute -top-3 -left-1 w-[200%] h-[200%] cursor-pointer appearance-none"
                   />
                 </div>
               </div>
             </div>
 
-           <div class="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
-              {#each ['corporate', 'atelier', 'midnight'] as presetName}
+            <div class="flex gap-1 overflow-x-auto pb-2 px-1 custom-scrollbar no-scrollbar">
+              {#each ['corporate', 'atelier', 'midnight', 'brutalist'] as presetName}
                 {@const isActive = globalTheme.preset === presetName}
                 <button 
                   onclick={() => applyPreset(presetName)}
-                  class="whitespace-nowrap px-2 py-1 text-[9px] font-black uppercase rounded-md border transition-all
+                  class="whitespace-nowrap px-2 py-1 text-[8px] font-black uppercase rounded border transition-all
                   {isActive 
                     ? 'border-amber-500/50 text-amber-500 bg-amber-500/5' 
-                    : (isDark ? 'bg-stone-900 border-stone-800 text-stone-400 hover:text-amber-500' : 'bg-stone-50 border-stone-200 text-stone-500 hover:text-amber-600')}"
+                    : (isDark ? 'bg-stone-900 border-stone-800 text-stone-400' : 'bg-stone-50 border-stone-200 text-stone-500')}"
                 >
                   {presetName === 'corporate' ? 'DEFAULT' : presetName}
                 </button>
               {/each}
             </div>
-            <div class="mt-4 p-4 rounded-xl border border-stone-200 bg-white shadow-inner">
-              <p class="text-[9px] font-bold text-stone-400 uppercase tracking-widest mb-3">Live Export Preview</p>
+
+            <div class="mt-2 p-3 rounded-xl border border-stone-200 {isDark ? 'bg-stone-900/50 border-stone-800' : 'bg-white'} shadow-inner">
+              <p class="text-[8px] font-bold text-stone-400 uppercase tracking-widest mb-2">Preview</p>
               
               <div 
-                class="aspect-[3/4] w-full max-w-[180px] mx-auto shadow-lg rounded-sm border border-stone-100 transition-all duration-300 flex flex-col p-4 overflow-hidden"
+                class="aspect-[3/4] w-24 sm:w-32 mx-auto shadow-md rounded-sm border border-stone-100 transition-all duration-300 flex flex-col p-2 sm:p-3 overflow-hidden"
                 style="background-color: {globalTheme.accentColor.hex};"
               >
-                <div 
-                  class="w-1/2 h-1 mb-6 opacity-40 rounded-full" 
-                  style="background-color: {globalTheme.primaryColor.hex};"
-                ></div>
+                <div class="w-1/3 h-0.5 mb-3 opacity-40 rounded-full" style="background-color: {globalTheme.primaryColor.hex};"></div>
 
                 <h1 
-                  class="leading-tight transition-colors duration-300 mb-2"
+                  class="leading-tight mb-1 truncate"
                   style="
                     color: {globalTheme.primaryColor.hex}; 
                     font-family: {globalTheme.fontFamily}; 
-                    font-size: {globalTheme.chapterFontSize / 5}px;
+                    font-size: {globalTheme.chapterFontSize / 10}px;
                   "
                 >
                   The Archive
                 </h1>
                 
-                <div 
-                  class="w-full h-[0.5px] mb-4 opacity-20" 
-                  style="background-color: {globalTheme.primaryColor.hex};"
-                ></div>
+                <div class="w-full h-[0.5px] mb-2 opacity-20" style="background-color: {globalTheme.primaryColor.hex};"></div>
                 
-                <div class="space-y-1.5">
-                  {#each [1, 2, 3, 4, 5] as _, i}
-                    <div 
-                      class="h-[2px] rounded-full" 
-                      style="
-                        background-color: {globalTheme.primaryColor.hex}; 
-                        width: {i === 4 ? '60%' : '100%'};
-                        opacity: 0.5;
-                      "
-                    ></div>
+                <div class="space-y-1">
+                  {#each [1, 2, 3] as _, i}
+                    <div class="h-[1.5px] rounded-full" style="background-color: {globalTheme.primaryColor.hex}; width: {i === 2 ? '60%' : '100%'}; opacity: 0.3;"></div>
                   {/each}
                 </div>
               </div>
               
-              <div class="mt-3 text-center">
-                <span class="text-[10px] text-stone-400 font-medium">
+              <div class="mt-2 text-center">
+                <span class="text-[8px] text-stone-400 font-bold uppercase tracking-tighter">
                   {globalTheme.fontFamily} — {globalTheme.bodyFontSize}pt
                 </span>
               </div>
