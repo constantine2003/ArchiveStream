@@ -349,7 +349,7 @@
   }
 
   async function clearQueue() {
-    if (!confirm("Clear all documents?")) return;
+    // if (!confirm("Clear all documents?")) return;
     await supabase.from('document_queue').delete().neq('id', 0);
     files.forEach(f => {
       if ('url' in f && f.url) {
@@ -738,7 +738,11 @@
         await optimizeMetadataAndImages(mergedPdf, !!compressEnabled);
       }
       
+      // --- 1. GENERATE FINAL BYTES ---
       const mergedPdfBytes = await mergedPdf.save({ useObjectStreams: !!compressEnabled });
+
+      // --- 2. TRIGGER LOCAL PDF DOWNLOAD IMMEDIATELY ---
+      // We do this first so you get your file even if Supabase is still connecting
       const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
       const exportUrl = URL.createObjectURL(blob);
       const fileName = `ArchiveStream_${Date.now()}.pdf`;
@@ -748,14 +752,44 @@
       link.download = fileName;
       link.click();
 
-      // Export History (Phase 3)
-      exportHistory = [{
-        name: fileName,
-        date: new Date().toLocaleDateString(undefined, { 
-          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
-        }),
-        url: exportUrl
-      }, ...exportHistory].slice(0, 5);
+      // --- 3. SUPABASE CLOUD UPLOAD (Background Sync) ---
+      let publicDownloadUrl = "";
+      try {
+        const { data: session, error: sError } = await supabase
+          .from('sessions')
+          .insert({})
+          .select()
+          .single();
+
+        if (sError) throw sError;
+
+        // Log the queue
+        const queueEntries = files.map((f, index) => ({
+            session_id: session.id,
+            file_name: f.name || (f.type === 'chapter' ? f.title : 'Untitled'),
+            file_size_kb: Math.round((f.rawFile?.size || 0) / 1024) || 0,
+            sort_order: index
+        }));
+        await supabase.from('document_queue').insert(queueEntries);
+
+        // Upload
+        const cloudFileName = `archive_${session.id}.pdf`;
+        const { error: uError } = await supabase.storage
+          .from('archives')
+          .upload(cloudFileName, mergedPdfBytes);
+
+        if (uError) throw uError;
+
+        const { data: { publicUrl } } = supabase.storage.from('archives').getPublicUrl(cloudFileName);
+        globalTheme.qrUrl = publicUrl;
+
+        // Update history with the cloud link
+        exportHistory = [{ name: fileName, date: new Date().toLocaleTimeString(), url: exportUrl, cloudUrl: publicUrl }, ...exportHistory].slice(0, 5);
+
+      } catch (cloudErr) {
+        // We log it to the console, but NO alert() here, so it doesn't interrupt the user
+        console.warn("Cloud Bridge Sync failed. QR may not be active.", cloudErr);
+      }
 
       showSuccess = true;
       setTimeout(() => { isExporting = false; showSuccess = false; }, 2500);
@@ -767,30 +801,26 @@
     }
   }
   
-  // async function generateAndDownloadQR() {
-  //   if (!globalTheme.qrUrl) {
-  //       // Tip: You can use a temporary placeholder for testing
-  //       alert("Enter the download link (e.g. your Google Drive link) in the sidebar first!");
-  //       return;
-  //   }
+  async function openQRModal() {
+    if (!globalTheme.qrUrl) {
+      // alert("Please export your PDF first to generate a cloud download link.");
+      return;
+    }
 
-  //   const QRCode = await import('qrcode');
+    const QRCode = await import('qrcode');
+    qrModalImage = await QRCode.toDataURL(globalTheme.qrUrl, {
+      width: 600,
+      margin: 2,
+      color: {
+        dark: '#0c0a09', // Stone-950
+        light: '#ffffff'
+      }
+    });
     
-  //   // We generate the QR with a 'Download' hint in the filename
-  //   const dataUrl = await QRCode.toDataURL(globalTheme.qrUrl, {
-  //       width: 1024,
-  //       margin: 4,
-  //       color: {
-  //           dark: '#000000', // Black is best for phone cameras to scan quickly
-  //           light: '#ffffff'
-  //       }
-  //   });
-
-  //   const link = document.createElement('a');
-  //   link.href = dataUrl;
-  //   link.download = `SCAN_TO_DOWNLOAD_ARCHIVE.png`;
-  //   link.click();
-  // }
+    showQRModal = true;
+  }
+  let showQRModal = $state(false);
+  let qrModalImage = $state("");
 </script>
 
 {#if menuVisible}
@@ -1278,7 +1308,7 @@
                     </span>
                     <div class="h-px flex-1 {isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
                   </div>
-                  <div class="bg-white shadow-lg mx-auto p-12.5 min-h-210.25 w-148.75 text-left">
+                  <div class="bg-white shadow-lg mx-auto p-12.5 min-h-210.25 w-200.75 text-left">
                     {@html file.previewHtml}
                   </div>
                 </section>
@@ -1382,7 +1412,38 @@
           </div>
         {/if}
       </div>
+      {#if showQRModal}
+        <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-stone-950/80 backdrop-blur-sm" onclick={() => showQRModal = false}>
+          
+          <div class="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl transform transition-all border border-stone-200" onclick={(e) => e.stopPropagation()}>
+            <div class="flex flex-col items-center text-center space-y-6">
+              <h3 class="text-stone-950 font-black text-xs tracking-[0.3em] uppercase">Digital Archive Bridge</h3>
+              
+              <div class="bg-stone-50 p-4 rounded-2xl border border-stone-100">
+                {#if qrModalImage}
+                  <img src={qrModalImage} alt="QR Code" class="w-64 h-64" />
+                {:else}
+                  <div class="w-64 h-64 flex items-center justify-center text-stone-400 text-[10px] italic">
+                    Generate an export first to activate link.
+                  </div>
+                {/if}
+              </div>
 
+              <div class="space-y-2 w-full">
+                <p class="text-[10px] text-stone-500 font-medium">Scan this to download your archive directly to any mobile device.</p>
+                <p class="text-[9px] text-stone-400 break-all font-mono opacity-60">{globalTheme.qrUrl || 'No link generated yet'}</p>
+              </div>
+
+              <button 
+                onclick={() => showQRModal = false}
+                class="w-full py-4 bg-stone-900 text-white rounded-xl font-bold text-[10px] tracking-widest uppercase hover:bg-black transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      {/if}
       <div class="fixed md:absolute bottom-6 md:bottom-10 left-1/2 -translate-x-1/2 z-20 w-full max-w-md px-4 pointer-events-none">
         <div class="flex flex-col items-center gap-4 pointer-events-auto">
           <button 
@@ -1404,11 +1465,17 @@
               {isExporting ? 'Compressing...' : 'Export PDF'}
             </button>
             <button 
-              
-              class="aspect-square h-13 flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0"
-              title="Generate QR Asset"
+              onclick={openQRModal}
+              class="aspect-square h-[52px] relative flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0"
+              title="View QR Code"
             >
-            <!-- onclick={generateAndDownloadQR} -->
+              {#if globalTheme.qrUrl}
+                <span class="absolute -top-1 -right-1 flex h-3 w-3">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                </span>
+              {/if}
+
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="group-hover:rotate-90 transition-transform duration-300">
                 <rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/>
               </svg>
