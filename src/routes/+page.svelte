@@ -452,244 +452,249 @@
   }
 
   async function handleExport() {
-  if (files.length === 0 || isExporting) return;
-  
-  try {
-    isExporting = true;
-    showSuccess = false;
-    exportProgress = 0;
+    if (files.length === 0 || isExporting) return;
+    
+    try {
+      isExporting = true;
+      showSuccess = false;
+      exportProgress = 0;
 
-    const { PDFDocument, rgb, degrees, StandardFonts } = await import('pdf-lib');
-    const mergedPdf = await PDFDocument.create();
-    
-    // --- BRANDING SETUP ---
-    // Helper to ensure colors are 0-1 range
-    const norm = (val) => (val > 1 ? val / 255 : val);
-    
-    const themePrimary = rgb(
-      norm(globalTheme.primaryColor.r), 
-      norm(globalTheme.primaryColor.g), 
-      norm(globalTheme.primaryColor.b)
-    );
-    const themeAccent = rgb(
-      norm(globalTheme.accentColor.r), 
-      norm(globalTheme.accentColor.g), 
-      norm(globalTheme.accentColor.b)
-    );
+      const { PDFDocument, rgb, degrees, StandardFonts } = await import('pdf-lib');
+      const mergedPdf = await PDFDocument.create();
+      
+      // --- BRANDING SETUP ---
+      // Helper to ensure colors are 0-1 range
+      const norm = (val) => (val > 1 ? val / 255 : val);
+      
+      const themePrimary = rgb(
+        norm(globalTheme.primaryColor.r), 
+        norm(globalTheme.primaryColor.g), 
+        norm(globalTheme.primaryColor.b)
+      );
+      const themeAccent = rgb(
+        norm(globalTheme.accentColor.r), 
+        norm(globalTheme.accentColor.g), 
+        norm(globalTheme.accentColor.b)
+      );
 
-    // Font Handling
-    const fontName = globalTheme.fontFamily || 'Helvetica';
-    const font = await mergedPdf.embedFont(StandardFonts[fontName]);
-    
-    const boldVariants = [`${fontName.replace('-', '')}Bold`, `${fontName}-Bold`, `${fontName}Bold` ];
-    let fontBold;
-    for (const variant of boldVariants) {
-      if (StandardFonts[variant]) {
-        fontBold = await mergedPdf.embedFont(StandardFonts[variant]);
-        break; 
+      // Font Handling
+      const fontName = globalTheme.fontFamily || 'Helvetica';
+      const font = await mergedPdf.embedFont(StandardFonts[fontName]);
+      
+      const boldVariants = [`${fontName.replace('-', '')}Bold`, `${fontName}-Bold`, `${fontName}Bold` ];
+      let fontBold;
+      for (const variant of boldVariants) {
+        if (StandardFonts[variant]) {
+          fontBold = await mergedPdf.embedFont(StandardFonts[variant]);
+          break; 
+        }
       }
-    }
-    if (!fontBold) fontBold = await mergedPdf.embedFont(StandardFonts.HelveticaBold);
+      if (!fontBold) fontBold = await mergedPdf.embedFont(StandardFonts.HelveticaBold);
 
-    // --- MAIN PROCESSING LOOP ---
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+      // --- MAIN PROCESSING LOOP ---
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
 
-      if (file.type === 'chapter') {
-        /**
-         * CHAPTER LOGIC (Phase 2: Professional Export)
-         * Purpose: Acts as a high-impact brand separator.
-         */
-        const page = mergedPdf.addPage([600, 800]);
-        const { width, height } = page.getSize();
-        const title = typeof file.title === 'string' ? file.title : 'Section';
+        // 1. ADD THIS HERE: Define allowedPages for the current file
+        // We use your parsePageRanges helper (ensure this function is defined in your scope)
+        // We need to know the total pages. For Word, we'll estimate; for PDF, we get it from the file.
         
-        // Background = Brand Accent (Paper)
-        page.drawRectangle({
-          x: 0, y: 0, width, height,
-          color: themeAccent 
-        });
-
-        // Text = Brand Primary (Ink)
-        page.drawText(title.toUpperCase(), {
-          x: 50,
-          y: height / 2,
-          size: globalTheme.chapterFontSize || 32,
-          font: fontBold,
-          color: themePrimary 
-        });
-
-      } else if (file.type === 'word') {
-        /**
-         * WORD/HTML LOGIC (Phase 4: Expansion)
-         * Purpose: Renders editable content with consistent branding.
-         */
-        const container = document.createElement('div');
-        container.innerHTML = file.previewHtml || "";
-        
-        const fontSize = globalTheme.bodyFontSize || 11;
-        const lineHeight = globalTheme.lineHeight || 16; 
-        const margin = 50;
-        const pageHeight = 841.89; 
-        const pageWidth = 595.28; 
-        const maxWidth = pageWidth - (margin * 2);
-        const printableHeight = pageHeight - (margin * 2);
-
-        // 1. Text Wrapping Logic
-        const allContentObjects = [];
-        const elements = Array.from(container.querySelectorAll('p, img, h1, h2, li, div'));
-
-        for (const el of elements) {
-          if (el.tagName === 'IMG') {
-            allContentObjects.push({ type: 'image', src: el.src, height: 160 });
-          } else {
-            const text = el.textContent?.trim() || "";
-            if (!text) continue;
-            const words = text.split(/\s+/);
-            let currentLine = "";
-            words.forEach(word => {
-              const testLine = currentLine ? `${currentLine} ${word}` : word;
-              const width = font.widthOfTextAtSize(testLine, fontSize);
-              if (width < maxWidth) { 
-                currentLine = testLine; 
-              } else {
-                allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight });
-                currentLine = word;
-              }
-            });
-            allContentObjects.push({ type: 'text', content: currentLine, height: lineHeight + 10 }); 
-          }
+        let totalDocPages = 1; // Default
+        if (file.type === 'word') {
+            // Estimate pages: roughly 750px of HTML height per page
+            const tempDiv = document.createElement('div');
+            tempDiv.style.width = "650px";
+            tempDiv.style.visibility = "hidden";
+            tempDiv.innerHTML = file.previewHtml || "";
+            document.body.appendChild(tempDiv);
+            totalDocPages = Math.ceil(tempDiv.offsetHeight / 750) || 1;
+            document.body.removeChild(tempDiv);
+        } else if (file.rawFile) {
+            // It's a PDF, we'll get the count inside the PDF logic block
         }
 
-        // 2. Pagination Logic
-        let virtualPages = [[]];
-        let currentPageHeight = 0;
-        let pageIdx = 0;
-        for (const item of allContentObjects) {
-          if (currentPageHeight + item.height > printableHeight) {
-            virtualPages.push([]);
-            pageIdx++;
-            currentPageHeight = 0;
-          }
-          virtualPages[pageIdx].push(item);
-          currentPageHeight += item.height;
-        }
-
-        // 3. Selective Range (Phase 1)
+        // Calculate the allowed range based on user input
         const allowedPages = (file.selectionType === 'custom' && file.pageSelection)
-          ? parsePageRanges(file.pageSelection, virtualPages.length)
-          : Array.from({ length: virtualPages.length }, (_, idx) => idx + 1);
+            ? parsePageRanges(file.pageSelection, totalDocPages)
+            : Array.from({ length: totalDocPages }, (_, idx) => idx + 1);
 
-        // 4. Draw to PDF
-        for (let j = 0; j < virtualPages.length; j++) {
-          if (allowedPages.includes(j + 1)) {
-            const page = mergedPdf.addPage([pageWidth, pageHeight]);
+        if (file.type === 'chapter') {
+          /**
+           * CHAPTER LOGIC (Phase 2: Professional Export)
+           * Purpose: Acts as a high-impact brand separator.
+           */
+          const page = mergedPdf.addPage([600, 800]);
+          const { width, height } = page.getSize();
+          const title = typeof file.title === 'string' ? file.title : 'Section';
+          
+          // Background = Brand Accent (Paper)
+          page.drawRectangle({
+            x: 0, y: 0, width, height,
+            color: themeAccent 
+          });
+
+          // Text = Brand Primary (Ink)
+          page.drawText(title.toUpperCase(), {
+            x: 50,
+            y: height / 2,
+            size: globalTheme.chapterFontSize || 32,
+            font: fontBold,
+            color: themePrimary 
+          });
+
+        } else if (file.type === 'word') {
+            const worker = document.createElement('div');
             
-            // Draw "Digital Paper" Background (Except for Corporate)
-            if (globalTheme.preset !== 'corporate') {
-              page.drawRectangle({ 
-                x: 0, y: 0, width: pageWidth, height: pageHeight, 
-                color: themeAccent 
-              });
+            // 1. SMART THEME LOGIC
+            // If it's Midnight, we flip to "Print Mode" (White background, Dark Ink)
+            // If it's Atelier, we keep the cream color (it's light enough for printing)
+            let exportBg = themeAccent;
+            let exportText = themePrimary;
+
+            if (globalTheme.preset === 'midnight') {
+                exportBg = '#ffffff'; // Force white for the PDF
+                exportText = '#1a1a1a'; // Force dark gray/black ink
             }
 
-            let currentY = pageHeight - margin;
-            for (const item of virtualPages[j]) {
-              if (item.type === 'image') {
-                try {
-                  const imgData = await fetch(item.src).then(res => res.arrayBuffer());
-                  const image = item.src.includes('png') ? await mergedPdf.embedPng(imgData) : await mergedPdf.embedJpg(imgData);
-                  const dims = image.scaleToFit(maxWidth, 150);
-                  page.drawImage(image, {
-                    x: margin, y: currentY - dims.height,
-                    width: dims.width, height: dims.height,
-                  });
-                  currentY -= (dims.height + 20); 
-                } catch (e) { console.error("Image export failed", e); }
-              } else if (item.content.trim()) {
-                page.drawText(item.content, {
-                  x: margin, y: currentY - fontSize,
-                  size: fontSize, font: font,
-                  color: themePrimary, // Brand Ink
+            // 2. APPLY THE STYLES
+            worker.style.width = "650px"; 
+            worker.style.padding = "40px";
+            worker.style.backgroundColor = exportBg; 
+            worker.style.color = exportText;
+            worker.style.fontFamily = globalTheme.fontFamily || 'serif';
+            worker.style.fontSize = `${globalTheme.bodyFontSize || 11}pt`;
+            worker.style.lineHeight = "1.6";
+            
+            worker.innerHTML = file.previewHtml || ""; 
+            document.body.appendChild(worker);
+
+            // 3. CLEAN UP TABLES (The "Professional" Touch)
+            worker.querySelectorAll('table').forEach(table => {
+                table.style.width = "100%";
+                table.style.borderCollapse = "collapse";
+                table.style.marginBottom = "20px";
+                
+                // Ensure table borders are visible in "Print Mode"
+                table.querySelectorAll('td, th').forEach(cell => {
+                    cell.style.border = `1px solid ${exportText}33`; // 33 adds transparency
+                    cell.style.padding = "8px";
                 });
-                const spacing = (globalTheme.preset === 'atelier') ? 2 : 0;
-                currentY -= (item.height > lineHeight) ? item.height + spacing : lineHeight + spacing;
+            });
+
+            worker.querySelectorAll('img').forEach(img => {
+                img.style.maxWidth = "100%";
+                img.style.height = "auto";
+                img.style.display = "block";
+                img.style.margin = "20px auto";
+            });
+
+            // 4. THE EXPORT
+            const opt = {
+                margin: 0.5,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true },
+                jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
+                pagebreak: { mode: ['avoid-all'] }
+            };
+
+            try {
+              // 1. Generate the PDF buffer
+              const pdfArrayBuffer = await html2pdf().set(opt).from(worker).outputPdf('arraybuffer');
+              
+              // 2. Load the freshly generated Word PDF
+              const wordDoc = await PDFDocument.load(pdfArrayBuffer);
+              const totalWordPages = wordDoc.getPageCount();
+
+              // 3. PHASE 1 INTEGRATION: Calculate which pages to actually grab
+              // We use your existing 'allowedPages' logic. 
+              // Note: we subtract 1 because PDF indices start at 0.
+              const indicesToCopy = allowedPages
+                  .map(p => p - 1) 
+                  .filter(idx => idx >= 0 && idx < totalWordPages);
+
+              // 4. Copy and Merge
+              if (indicesToCopy.length > 0) {
+                  const pages = await mergedPdf.copyPages(wordDoc, indicesToCopy);
+                  pages.forEach(p => mergedPdf.addPage(p));
               }
+
+          } catch (err) {
+              console.error("ArchiveStream Selective Export Failed:", err);
+          } finally {
+              document.body.removeChild(worker);
+          }
+        } else {
+              /**
+           * STANDARD PDF LOGIC (Phase 1: Organization)
+           * Purpose: Merges existing PDF files with range selection.
+           */
+          if (file.rawFile) {
+            const pdfBytes = await file.rawFile.arrayBuffer();
+            const pdf = await PDFDocument.load(pdfBytes);
+            const maxPages = pdf.getPageCount();
+            let indices = (file.selectionType === 'custom' && file.pageSelection)
+              ? parsePageRanges(file.pageSelection, maxPages).map(n => n - 1)
+              : Array.from({length: maxPages}, (_, idx) => idx);
+
+            if (indices.length > 0) {
+              const copiedPages = await mergedPdf.copyPages(pdf, indices);
+              copiedPages.forEach((page) => mergedPdf.addPage(page));
             }
           }
         }
-      } else {
-        /**
-         * STANDARD PDF LOGIC (Phase 1: Organization)
-         * Purpose: Merges existing PDF files with range selection.
-         */
-        if (file.rawFile) {
-          const pdfBytes = await file.rawFile.arrayBuffer();
-          const pdf = await PDFDocument.load(pdfBytes);
-          const maxPages = pdf.getPageCount();
-          let indices = (file.selectionType === 'custom' && file.pageSelection)
-            ? parsePageRanges(file.pageSelection, maxPages).map(n => n - 1)
-            : Array.from({length: maxPages}, (_, idx) => idx);
-
-          if (indices.length > 0) {
-            const copiedPages = await mergedPdf.copyPages(pdf, indices);
-            copiedPages.forEach((page) => mergedPdf.addPage(page));
-          }
-        }
+        exportProgress = Math.round(((i + 1) / files.length) * 100);
       }
-      exportProgress = Math.round(((i + 1) / files.length) * 100);
-    }
 
-    // --- WATERMARK OVERLAYS ---
-    if (activeWatermark !== 'NONE') {
-      const style = watermarkStyles[activeWatermark];
-      const pages = mergedPdf.getPages();
-      pages.forEach((page) => {
-        const { width, height } = page.getSize();
-        page.drawText(style.text, {
-          x: width / 4, y: height / 3,
-          size: 70, font: fontBold,
-          color: themePrimary, // Watermark uses Brand Primary
-          rotate: degrees(45),
-          opacity: style.opacity || 0.15,
+      // --- WATERMARK OVERLAYS ---
+      if (activeWatermark !== 'NONE') {
+        const style = watermarkStyles[activeWatermark];
+        const pages = mergedPdf.getPages();
+        pages.forEach((page) => {
+          const { width, height } = page.getSize();
+          page.drawText(style.text, {
+            x: width / 4, y: height / 3,
+            size: 70, font: fontBold,
+            color: themePrimary, // Watermark uses Brand Primary
+            rotate: degrees(45),
+            opacity: style.opacity || 0.15,
+          });
         });
-      });
+      }
+
+      // --- FINAL EXPORT & DOWNLOAD ---
+      // Metadata Optimization (Phase 3)
+      if (typeof optimizeMetadataAndImages === 'function') {
+        await optimizeMetadataAndImages(mergedPdf, !!compressEnabled);
+      }
+      
+      const mergedPdfBytes = await mergedPdf.save({ useObjectStreams: !!compressEnabled });
+      const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
+      const exportUrl = URL.createObjectURL(blob);
+      const fileName = `ArchiveStream_${Date.now()}.pdf`;
+      
+      const link = document.createElement('a');
+      link.href = exportUrl;
+      link.download = fileName;
+      link.click();
+
+      // Export History (Phase 3)
+      exportHistory = [{
+        name: fileName,
+        date: new Date().toLocaleDateString(undefined, { 
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+        }),
+        url: exportUrl
+      }, ...exportHistory].slice(0, 5);
+
+      showSuccess = true;
+      setTimeout(() => { isExporting = false; showSuccess = false; }, 2500);
+
+    } catch (err) {
+      console.error("Export Failed:", err);
+      alert("Error combining documents. Please check the console.");
+      isExporting = false;
     }
-
-    // --- FINAL EXPORT & DOWNLOAD ---
-    // Metadata Optimization (Phase 3)
-    if (typeof optimizeMetadataAndImages === 'function') {
-      await optimizeMetadataAndImages(mergedPdf, !!compressEnabled);
-    }
-    
-    const mergedPdfBytes = await mergedPdf.save({ useObjectStreams: !!compressEnabled });
-    const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
-    const exportUrl = URL.createObjectURL(blob);
-    const fileName = `ArchiveStream_${Date.now()}.pdf`;
-    
-    const link = document.createElement('a');
-    link.href = exportUrl;
-    link.download = fileName;
-    link.click();
-
-    // Export History (Phase 3)
-    exportHistory = [{
-      name: fileName,
-      date: new Date().toLocaleDateString(undefined, { 
-        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
-      }),
-      url: exportUrl
-    }, ...exportHistory].slice(0, 5);
-
-    showSuccess = true;
-    setTimeout(() => { isExporting = false; showSuccess = false; }, 2500);
-
-  } catch (err) {
-    console.error("Export Failed:", err);
-    alert("Error combining documents. Please check the console.");
-    isExporting = false;
   }
-}
 
 </script>
 
