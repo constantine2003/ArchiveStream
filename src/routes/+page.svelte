@@ -16,25 +16,31 @@
     pageSelection?: string;
     selectionType: 'all' | 'custom';
     pageCount?: number;
-    type?: 'pdf' | 'word' | 'chapter'; // Refined type
-    previewHtml?: string; // New: for Word previews
-    rawFile?: File; // New: to keep the original for merging
-    title?: string; // For chapter pages
+    type?: 'pdf' | 'word' | 'chapter'; 
+    previewHtml?: string; 
+    rawFile?: File; 
+    title?: string; 
+    description?: string; // <--- MUST HAVE THIS
+    [key: string]: any;   // The "Safety Net" - allows any extra properties
   };
     
   let files = $state<FileItem[]>([]);
     // --- Add Chapter/Separator Page ---
     function addChapter() {
-      const newChapter: { id: string; type: "chapter"; title: string; name: string; selectionType: "all"; isEditing?: boolean } = {
+      // Use FileItem directly. This tells TS to check the master list above.
+      const newChapter: FileItem = {
         id: crypto.randomUUID(),
         type: "chapter",
         title: "New Chapter",
-        name: "Separator Page", // for sidebar sync
+        description: '', 
+        name: "Separator Page", 
         selectionType: "all",
         isEditing: false
       };
+      
       files = [...files, newChapter];
     }
+    
   let activeFileId = $state<string | null>(null);
     /**
      * Synchronizes the sidebar selection with the canvas scroll position.
@@ -481,9 +487,13 @@
 
       // Font Handling
       const fontName = globalTheme.fontFamily || 'Helvetica';
-      const font = await mergedPdf.embedFont(StandardFonts[fontName]);
-      
+      // Use 'fontRegular' as the variable name to match your chapter logic
+      const fontRegular = await mergedPdf.embedFont(StandardFonts[fontName]); 
+      // Keep 'font' as an alias just in case other parts of your code use it
+      const font = fontRegular; 
+
       const boldVariants = [`${fontName.replace('-', '')}Bold`, `${fontName}-Bold`, `${fontName}Bold` ];
+      // ... (keep the rest of your fontBold loop as is)
       let fontBold;
       for (const variant of boldVariants) {
         if (StandardFonts[variant]) {
@@ -524,23 +534,56 @@
           const page = mergedPdf.addPage([600, 800]);
           const { width, height } = page.getSize();
           
-          // Choose the font object based on preset
-          // If brutalist, we use the Bold version of the font we loaded earlier
-          const activeFont = globalTheme.preset === 'brutalist' ? fontBold : fontRegular;
+          // 1. SAFE DATA HANDLING
+          const titleText = (file.title || 'Section').toUpperCase();
+          const descText = file.description || ""; 
 
+          // 2. DRAW BACKGROUND (Paper Color)
           page.drawRectangle({
-            x: 0, y: 0, width, height,
-            color: themeAccent 
+              x: 0, y: 0, width, height,
+              color: themeAccent 
           });
 
-          page.drawText(title.toUpperCase(), {
-            x: 50,
-            y: height / 2,
-            size: globalTheme.chapterFontSize || 32,
-            font: activeFont, // This ensures it's bold without crashing the font name
-            color: themePrimary 
+          const margin = 60;
+          const maxTextWidth = width - (margin * 2);
+          
+          // 3. TITLE CALCULATIONS
+          let titleSize = globalTheme.chapterFontSize || 32;
+          // Dynamic resizing for extreme lengths
+          if (titleText.length > 25) titleSize = titleSize * 0.6;
+          else if (titleText.length > 15) titleSize = titleSize * 0.8;
+
+          // 4. DRAW TITLE
+          // maxWidth + lineHeight enables automatic wrapping in modern pdf-lib versions
+          page.drawText(titleText, {
+              x: margin,
+              y: height - 300, // Fixed starting point from top
+              size: titleSize,
+              font: fontBold,
+              color: themePrimary,
+              maxWidth: maxTextWidth,
+              lineHeight: titleSize * 1.1,
           });
-        } else if (file.type === 'word') {
+
+          // 5. DRAW DESCRIPTION (Subheading)
+          if (descText.trim()) {
+              // Calculate an offset so it doesn't overlap the title
+              // We estimate the title height based on length
+              const titleLines = Math.ceil((titleText.length * (titleSize * 0.6)) / maxTextWidth);
+              const descYOffset = (titleLines * (titleSize * 1.1)) + 40;
+
+              page.drawText(descText, {
+                  x: margin,
+                  y: height - 300 - (titleLines * titleSize) - 40,
+                  size: 16,
+                  font: fontRegular,
+                  color: themePrimary,
+                  maxWidth: maxTextWidth,
+                  lineHeight: 20,
+                  opacity: 0.75 // Atelier styling: slightly faded for hierarchy
+              });
+          }
+      } else if (file.type === 'word') {
             const worker = document.createElement('div');
             
             // 1. SMART THEME LOGIC
@@ -723,7 +766,37 @@
       isExporting = false;
     }
   }
+  
+  async function generateAndDownloadQR() {
+    if (!globalTheme.qrUrl) {
+      alert("Please enter a URL in the Typography settings first.");
+      return;
+    }
 
+    try {
+      const QRCode = await import('qrcode');
+      
+      // Ensure the QR is also enabled for the PDF export
+      globalTheme.showQR = true;
+
+      // Generate a high-res version for the standalone download
+      const dataUrl = await QRCode.toDataURL(globalTheme.qrUrl, {
+        width: 1024,
+        margin: 2,
+        color: {
+          dark: globalTheme.primaryColor.hex, // Matches your 'Ink' choice
+          light: '#ffffff'
+        }
+      });
+
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `ArchiveStream_QR_${Date.now()}.png`;
+      link.click();
+    } catch (err) {
+      console.error("QR Generation failed:", err);
+    }
+  }
 </script>
 
 {#if menuVisible}
@@ -1121,15 +1194,36 @@
             {#each files as file, i (file.id)}
               {#if file.type === 'chapter'}
                 <section id={file.id ? String(file.id) : undefined} class="max-w-4xl mx-auto my-12 group transition-all">
-                  <div class="bg-stone-50 {isDark ? 'bg-stone-900/30' : 'bg-stone-50'} border-2 border-dashed {isDark ? 'border-stone-800' : 'border-stone-200'} rounded-2xl p-20 flex flex-col items-center justify-center">
+                  <div class="bg-stone-50 {isDark ? 'bg-stone-900/30' : 'bg-stone-50'} border-2 border-dashed {isDark ? 'border-stone-800' : 'border-stone-200'} rounded-2xl p-12 md:p-20 flex flex-col items-center justify-center">
+                    
                     <span class="text-[10px] font-black uppercase tracking-[0.4em] text-amber-600 mb-8">Section Break</span>
-                    <input 
+                    
+                    <textarea 
                       bind:value={file.title}
-                      class="bg-transparent text-4xl md:text-6xl font-serif text-stone-800 {isDark ? 'text-stone-200' : 'text-stone-800'} text-center w-full outline-none border-b border-transparent focus:border-amber-500/30 pb-4 transition-all"
+                      rows="1"
+                      class="bg-transparent text-4xl md:text-6xl font-serif text-stone-800 {isDark ? 'text-stone-200' : 'text-stone-800'} text-center w-full outline-none border-b border-transparent focus:border-amber-500/30 pb-4 transition-all resize-none overflow-hidden"
                       placeholder="Enter Title..."
-                    />
-                    <div class="mt-8 flex gap-4">
-                      <button onclick={() => removeFile(typeof file.id === 'number' ? file.id : undefined, i)} class="text-[10px] font-bold text-red-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+                      oninput={(e) => {
+                        e.currentTarget.style.height = 'auto';
+                        e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
+                      }}
+                    ></textarea>
+
+                    <textarea 
+                      bind:value={file.description}
+                      class="mt-6 bg-transparent text-base md:text-xl font-sans text-stone-500 text-center w-full max-w-2xl outline-none resize-none overflow-hidden opacity-70 focus:opacity-100"
+                      placeholder="Add a subtitle..."
+                      oninput={(e) => {
+                        e.currentTarget.style.height = 'auto';
+                        e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
+                      }}
+                    ></textarea>
+
+                    <div class="mt-10 flex gap-4">
+                      <button 
+                        onclick={() => removeFile(typeof file.id === 'number' ? file.id : undefined, i)} 
+                        class="px-4 py-2 text-[10px] font-bold text-red-500/70 hover:text-red-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all border border-transparent hover:border-red-500/20 rounded-lg"
+                      >
                         Remove Chapter
                       </button>
                     </div>
@@ -1311,6 +1405,15 @@
             </button>
             <button onclick={handleExport} disabled={isExporting} class="flex-2 py-4 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all">
               {isExporting ? 'Compressing...' : 'Export PDF'}
+            </button>
+            <button 
+              onclick={generateAndDownloadQR}
+              class="aspect-square h-[52px] flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0"
+              title="Generate QR Asset"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="group-hover:rotate-90 transition-transform duration-300">
+                <rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/>
+              </svg>
             </button>
           </div>
         </div>
