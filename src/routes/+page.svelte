@@ -565,6 +565,11 @@
             worker.style.fontSize = `${globalTheme.bodyFontSize || 11}pt`;
             worker.style.lineHeight = "1.6";
             
+            // --- ADD THESE TWO LINES TO FIX THE COLOR ---
+            worker.style.webkitPrintColorAdjust = "exact"; 
+            worker.style.printColorAdjust = "exact";
+            // --------------------------------------------
+
             worker.innerHTML = file.previewHtml || ""; 
             document.body.appendChild(worker);
 
@@ -574,9 +579,9 @@
                 table.style.borderCollapse = "collapse";
                 table.style.marginBottom = "20px";
                 
-                // Ensure table borders are visible in "Print Mode"
+                // Ensure table borders use the theme's ink color
                 table.querySelectorAll('td, th').forEach(cell => {
-                    cell.style.border = `1px solid ${exportText}33`; // 33 adds transparency
+                    cell.style.border = `1px solid ${exportText}`; 
                     cell.style.padding = "8px";
                 });
             });
