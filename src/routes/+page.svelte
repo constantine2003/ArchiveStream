@@ -1021,8 +1021,9 @@
             </p>
             
             <div class="px-1">
-              <label class="block text-[8px] font-bold text-stone-500 uppercase mb-1">Typography</label>
+              <label for="typography-select" class="block text-[8px] font-bold text-stone-500 uppercase mb-1">Typography</label>
               <select 
+                id="typography-select"
                 bind:value={globalTheme.fontFamily}
                 class="w-full p-2 text-[10px] font-bold rounded-lg border outline-none transition-all
                 {isDark ? 'bg-stone-900 border-stone-800 text-stone-300' : 'bg-stone-50 border-stone-200 text-stone-700'}"
@@ -1060,9 +1061,10 @@
 
             <div class="grid grid-cols-2 gap-2 px-1">
               <div>
-                <label class="block text-[8px] font-bold text-stone-400 uppercase mb-1 tracking-tight">Ink</label>
+                <label for="ink-color" class="block text-[8px] font-bold text-stone-400 uppercase mb-1 tracking-tight">Ink</label>
                 <div class="relative w-full h-5 rounded-md border border-stone-200 overflow-hidden shadow-sm">
                   <input 
+                    id="ink-color"
                     type="color" 
                     value={globalTheme.primaryColor.hex} 
                     oninput={(e) => updateThemeColor('primaryColor', e.currentTarget.value)} 
@@ -1072,9 +1074,10 @@
               </div>
 
               <div>
-                <label class="block text-[8px] font-bold text-stone-400 uppercase mb-1 tracking-tight">Paper</label>
+                <label for="paper-color" class="block text-[8px] font-bold text-stone-400 uppercase mb-1 tracking-tight">Paper</label>
                 <div class="relative w-full h-5 rounded-md border border-stone-200 overflow-hidden shadow-sm">
                   <input 
+                    id="paper-color"
                     type="color" 
                     value={globalTheme.accentColor.hex} 
                     oninput={(e) => updateThemeColor('accentColor', e.currentTarget.value)} 
@@ -1103,7 +1106,7 @@
               <p class="text-[8px] font-bold text-stone-400 uppercase tracking-widest mb-2">Preview</p>
               
               <div 
-                class="aspect-[3/4] w-24 sm:w-32 mx-auto shadow-md rounded-sm border border-stone-100 transition-all duration-300 flex flex-col p-2 sm:p-3 overflow-hidden"
+                class="aspect-3/4 w-24 sm:w-32 mx-auto shadow-md rounded-sm border border-stone-100 transition-all duration-300 flex flex-col p-2 sm:p-3 overflow-hidden"
                 style="background-color: {globalTheme.accentColor.hex};"
               >
                 <div class="w-1/3 h-0.5 mb-3 opacity-40 rounded-full" style="background-color: {globalTheme.primaryColor.hex};"></div>
@@ -1275,7 +1278,7 @@
                     </span>
                     <div class="h-px flex-1 {isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
                   </div>
-                  <div class="bg-white shadow-lg mx-auto p-[50px] min-h-[841px] w-[595px] text-left">
+                  <div class="bg-white shadow-lg mx-auto p-12.5 min-h-210.25 w-148.75 text-left">
                     {@html file.previewHtml}
                   </div>
                 </section>
@@ -1401,10 +1404,11 @@
               {isExporting ? 'Compressing...' : 'Export PDF'}
             </button>
             <button 
-              onclick={generateAndDownloadQR}
-              class="aspect-square h-[52px] flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0"
+              
+              class="aspect-square h-13 flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0"
               title="Generate QR Asset"
             >
+            <!-- onclick={generateAndDownloadQR} -->
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="group-hover:rotate-90 transition-transform duration-300">
                 <rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/>
               </svg>
