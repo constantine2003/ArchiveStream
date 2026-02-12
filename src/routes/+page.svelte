@@ -769,33 +769,27 @@
   
   async function generateAndDownloadQR() {
     if (!globalTheme.qrUrl) {
-      alert("Please enter a URL in the Typography settings first.");
-      return;
+        // Tip: You can use a temporary placeholder for testing
+        alert("Enter the download link (e.g. your Google Drive link) in the sidebar first!");
+        return;
     }
 
-    try {
-      const QRCode = await import('qrcode');
-      
-      // Ensure the QR is also enabled for the PDF export
-      globalTheme.showQR = true;
-
-      // Generate a high-res version for the standalone download
-      const dataUrl = await QRCode.toDataURL(globalTheme.qrUrl, {
+    const QRCode = await import('qrcode');
+    
+    // We generate the QR with a 'Download' hint in the filename
+    const dataUrl = await QRCode.toDataURL(globalTheme.qrUrl, {
         width: 1024,
-        margin: 2,
+        margin: 4,
         color: {
-          dark: globalTheme.primaryColor.hex, // Matches your 'Ink' choice
-          light: '#ffffff'
+            dark: '#000000', // Black is best for phone cameras to scan quickly
+            light: '#ffffff'
         }
-      });
+    });
 
-      const link = document.createElement('a');
-      link.href = dataUrl;
-      link.download = `ArchiveStream_QR_${Date.now()}.png`;
-      link.click();
-    } catch (err) {
-      console.error("QR Generation failed:", err);
-    }
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = `SCAN_TO_DOWNLOAD_ARCHIVE.png`;
+    link.click();
   }
 </script>
 
