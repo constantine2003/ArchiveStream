@@ -917,14 +917,24 @@
         updateCountdown(); // Trigger the math immediately
 
         // Log the queue
+        // --- NEW: Defensive Check ---
+        if (!session?.id) {
+            console.warn("Cloud Bridge: Session creation failed. Skipping queue and upload.");
+            return; // Stop the cloud bridge logic, but the local download is already done!
+        }
+
+        // Log the queue
         const queueEntries = files.map((f, index) => ({
             session_id: session.id,
             file_name: f.name || (f.type === 'chapter' ? f.title : 'Untitled'),
+            // PHASE 3: Log the actual size of the entry
             file_size_kb: Math.round((f.rawFile?.size || 0) / 1024) || 0,
             sort_order: index
         }));
-        
-        await supabase.from('document_queue').insert(queueEntries);
+
+        // Add 'await' to ensure this finishes before the storage upload
+        const { error: qError } = await supabase.from('document_queue').insert(queueEntries);
+        if (qError) console.error("Queue Sync Error:", qError);
 
         // Upload
         const cloudFileName = `archive_${session.id}.pdf`;
