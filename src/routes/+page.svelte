@@ -180,95 +180,139 @@
 
   // --- Actions ---
   async function handleFiles(droppedFiles: File[]) {
-  // 1. Filter for supported types
-  const validFiles = droppedFiles.filter(f => 
-    f.type === 'application/pdf' || 
-    f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-    f.name.endsWith('.docx') // Extra safety check
-  );
+    const validFiles = droppedFiles.filter(f => 
+      f.type === 'application/pdf' || 
+      f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      f.type.startsWith('image/') || 
+      f.name.endsWith('.docx') ||
+      f.name.endsWith('.jpg') ||
+      f.name.endsWith('.jpeg') ||
+      f.name.endsWith('.png')
+    );
 
-  const newFilesToAppend = [];
+    const newFilesToAppend = [];
 
-  for (const file of validFiles) {
-    const isWord = file.name.endsWith('.docx') || file.type.includes('wordprocessingml');
-    let previewHtml = "";
-    let pageCount = 1;
+    for (const file of validFiles) {
+      const isWord = file.name.endsWith('.docx') || file.type.includes('wordprocessingml');
+      const isImage = file.type.startsWith('image/'); // NEW: Image detection
+      let previewHtml = "";
+      let pageCount = 1;
 
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      
-      if (isWord) {
-        // Use the imported mammoth, not window.mammoth
-        const result = await mammoth.convertToHtml({ arrayBuffer });
-        previewHtml = result.value;
-      } else {
-        const pdfDoc = await PDFDocument.load(arrayBuffer);
-        pageCount = pdfDoc.getPageCount();
+      try {
+        if (isWord) {
+          const arrayBuffer = await file.arrayBuffer();
+          const result = await mammoth.convertToHtml({ arrayBuffer });
+          previewHtml = result.value;
+        } else if (isImage) {
+          // NEW: Images are always 1 page
+          pageCount = 1; 
+        } else {
+          // Existing PDF logic
+          const arrayBuffer = await file.arrayBuffer();
+          const pdfDoc = await PDFDocument.load(arrayBuffer);
+          pageCount = pdfDoc.getPageCount();
+        }
+
+        newFilesToAppend.push({ 
+          id: crypto.randomUUID(), 
+          name: file.name,
+          type: isWord ? 'word' : (isImage ? 'image' : 'pdf'), // Set type
+          url: URL.createObjectURL(file), // Works for both PDF and Images!
+          previewHtml: previewHtml,
+          rawFile: file, 
+          selectionType: 'all',
+          pageCount,
+          title: undefined 
+        });
+      } catch (e) {
+        console.error(`Error processing ${file.name}:`, e);
       }
-
-      newFilesToAppend.push({ 
-        id: crypto.randomUUID(), 
-        name: file.name,
-        type: isWord ? 'word' : 'pdf',
-        url: !isWord ? URL.createObjectURL(file) : undefined,
-        previewHtml: previewHtml,
-        rawFile: file, 
-        selectionType: 'all',
-        pageCount,
-        title: isWord ? undefined : undefined // Ensure title property exists
-      });
-    } catch (e) {
-      console.error(`Error processing ${file.name}:`, e);
     }
-  }
 
-    // 2. Update the state once at the end
     files = [...files, ...newFilesToAppend];
   }
   
   async function generateCombinedPdf() {
-  try {
-    const { PDFDocument, StandardFonts } = await import('pdf-lib');
-    const combinedPdf = await PDFDocument.create();
-    const font = await combinedPdf.embedFont(StandardFonts.Helvetica);
+    try {
+      const { PDFDocument, StandardFonts } = await import('pdf-lib');
+      const combinedPdf = await PDFDocument.create();
+      const font = await combinedPdf.embedFont(StandardFonts.Helvetica);
 
-    // This loop goes through every item on your sidebar/canvas
-    for (const file of files) {
-      
-      // CASE A: It's a Word Document
-      if (file.type === 'word') {
-        const page = combinedPdf.addPage([595.28, 841.89]); // Create blank page
-        const text = file.previewHtml.replace(/<[^>]*>/g, ' '); // Strip HTML
-        page.drawText(text.substring(0, 1500), { x: 50, y: 800, size: 12, font });
-      } 
-      
-      // CASE B: It's a Chapter Separator
-      else if (file.type === 'chapter') {
-        const page = combinedPdf.addPage([595.28, 841.89]);
-        page.drawText(file.title || "New Section", { x: 200, y: 400, size: 24, font });
-      } 
-      
-      // CASE C: It's a PDF
-      else {
-        const arrayBuffer = await file.rawFile.arrayBuffer();
-        const pdfDoc = await PDFDocument.load(arrayBuffer);
-        const pages = await combinedPdf.copyPages(pdfDoc, pdfDoc.getPageIndices());
-        pages.forEach(p => combinedPdf.addPage(p));
+      // --- ATELIER EXPORT LOOP ---
+      // This loop processes every item on your sidebar/canvas in order
+      for (const file of files) {
+        
+        // CASE A: Word Document (.docx)
+        if (file.type === 'word') {
+          const page = combinedPdf.addPage([595.28, 841.89]); // A4 Size
+          const text = file.previewHtml ? file.previewHtml.replace(/<[^>]*>/g, ' ') : ""; 
+          page.drawText(text.substring(0, 1500), { x: 50, y: 800, size: 12, font });
+        } 
+        
+        // CASE B: Chapter / Separator Page
+        else if (file.type === 'chapter') {
+          const page = combinedPdf.addPage([595.28, 841.89]); // A4 Size
+          page.drawText(file.title || "New Section", { x: 200, y: 400, size: 24, font });
+        } 
+
+        // CASE D: Image (JPG, PNG, WebP)
+        else if (file.type === 'image') {
+          const arrayBuffer = await file.rawFile.arrayBuffer();
+          let embeddedImage;
+          
+          // Identify format for pdf-lib embedding
+          if (file.rawFile.type === 'image/png') {
+            embeddedImage = await combinedPdf.embedPng(arrayBuffer);
+          } else {
+            // embedJpg handles .jpg and .jpeg
+            embeddedImage = await combinedPdf.embedJpg(arrayBuffer);
+          }
+
+          // Create page matching the image's original dimensions to maintain quality
+          const page = combinedPdf.addPage([embeddedImage.width, embeddedImage.height]);
+          page.drawImage(embeddedImage, {
+            x: 0,
+            y: 0,
+            width: embeddedImage.width,
+            height: embeddedImage.height,
+          });
+        }
+        
+        // CASE C: Standard PDF
+        else if (file.type === 'pdf') {
+          const arrayBuffer = await file.rawFile.arrayBuffer();
+          const pdfDoc = await PDFDocument.load(arrayBuffer);
+          
+          // Future Phase 1: SelectionType check will go here (Selective Page Ranges)
+          const pages = await combinedPdf.copyPages(pdfDoc, pdfDoc.getPageIndices());
+          pages.forEach(p => combinedPdf.addPage(p));
+        }
       }
+
+      // --- PHASE 2 & 3: Metadata and Image Optimization ---
+      // This applies your custom metadata (Author, Title) and future compression
+      if (typeof optimizeMetadataAndImages === 'function') {
+        await optimizeMetadataAndImages(combinedPdf, !!compressEnabled);
+      }
+
+      // --- FINALIZATION & DOWNLOAD ---
+      const pdfBytes = await combinedPdf.save();
+      
+      const fileName = globalTheme.customFileName || "ArchiveStream_Bundle.pdf";
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = fileName;
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+    } catch (error) {
+      console.error("Export Error:", error);
+      alert("The export failed. Check the console for details!");
     }
-
-    // Trigger the Download
-    const pdfBytes = await combinedPdf.save();
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob([pdfBytes], { type: 'application/pdf' }));
-    link.download = "ArchiveStream_Bundle.pdf";
-    link.click();
-
-  } catch (error) {
-    console.error("Export Error:", error);
-    alert("The export failed. Check the console!");
   }
-}
   /**
    * Converts strings like "1, 3-5" into [1, 3, 4, 5]
    */
@@ -694,6 +738,27 @@
           } finally {
               document.body.removeChild(worker);
           }
+        }// --- CASE C: IMAGE (NEW SUPPORT) ---
+        else if (file.type === 'image') {
+          try {
+            const imgBuffer = await file.rawFile.arrayBuffer();
+            let embeddedImg;
+            if (file.rawFile.type === 'image/png') {
+              embeddedImg = await mergedPdf.embedPng(imgBuffer);
+            } else {
+              embeddedImg = await mergedPdf.embedJpg(imgBuffer);
+            }
+
+            // Images are 1 page; only process if page 1 is "allowed"
+            if (allowedPages.includes(1)) {
+              const page = mergedPdf.addPage([embeddedImg.width, embeddedImg.height]);
+              page.drawImage(embeddedImg, {
+                x: 0, y: 0, width: embeddedImg.width, height: embeddedImg.height,
+              });
+            }
+          } catch (imgErr) {
+            console.error("Image Embedding Failed:", imgErr);
+          }
         } else {
               /**
            * STANDARD PDF LOGIC (Phase 1: Organization)
@@ -758,10 +823,14 @@
         const { data: session, error: sError } = await supabase
           .from('sessions')
           .insert({})
-          .select()
+          .select() // This already grabs everything!
           .single();
 
         if (sError) throw sError;
+
+        // --- NEW: Sync the UI Countdown ---
+        activeSessionTimestamp = session.uploaded_at; 
+        updateCountdown(); // Trigger the math immediately
 
         // Log the queue
         const queueEntries = files.map((f, index) => ({
@@ -770,6 +839,7 @@
             file_size_kb: Math.round((f.rawFile?.size || 0) / 1024) || 0,
             sort_order: index
         }));
+        
         await supabase.from('document_queue').insert(queueEntries);
 
         // Upload
@@ -819,8 +889,35 @@
     
     showQRModal = true;
   }
+
   let showQRModal = $state(false);
   let qrModalImage = $state("");
+
+  let timeLeft = "05h 00m";
+  let activeSessionTimestamp = null; // Update this when you generate the QR
+
+  function updateCountdown() {
+    if (!activeSessionTimestamp) return;
+
+    const expiryTime = new Date(activeSessionTimestamp).getTime() + (5 * 60 * 60 * 1000);
+    const now = new Date().getTime();
+    const diff = expiryTime - now;
+
+    if (diff <= 0) {
+      timeLeft = "EXPIRED";
+      return;
+    }
+
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    
+    // Formatting to look like a digital clock: 04h 22m
+    timeLeft = `${hours.toString().padStart(2, '0')}h ${minutes.toString().padStart(2, '0')}m`;
+  }
+
+  // Run every 30 seconds to stay accurate
+  setInterval(updateCountdown, 30000);
+  
 </script>
 
 {#if menuVisible}
@@ -877,7 +974,14 @@
 </div>
 {/if}
 
-<input bind:this={fileInput} type="file" multiple accept="application/pdf" class="hidden" onchange={(e) => { if (e.currentTarget.files) handleFiles(Array.from(e.currentTarget.files)) }} />
+<input 
+  bind:this={fileInput} 
+  type="file" 
+  multiple 
+  accept=".pdf, .doc, .docx, .jpg, .jpeg, .png, .webp, application/pdf, application/msword, application/vnd.openxmlformats-officedocument.wordprocessingml.document, image/jpeg, image/png, image/webp" 
+  class="hidden" 
+  onchange={(e) => { if (e.currentTarget.files) handleFiles(Array.from(e.currentTarget.files)) }} 
+/>
 
 <div class="flex h-screen w-full transition-colors duration-500 {isDark ? 'bg-stone-950 text-stone-200' : 'bg-stone-50 text-stone-900'} font-sans overflow-hidden relative">
 
@@ -1414,16 +1518,22 @@
       </div>
       {#if showQRModal}
         <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-stone-950/80 backdrop-blur-sm" onclick={() => showQRModal = false}>
-          
           <div class="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl transform transition-all border border-stone-200" onclick={(e) => e.stopPropagation()}>
             <div class="flex flex-col items-center text-center space-y-6">
-              <h3 class="text-stone-950 font-black text-xs tracking-[0.3em] uppercase">Digital Archive Bridge</h3>
+              
+              <div class="space-y-1">
+                <h3 class="text-stone-950 font-black text-xs tracking-[0.3em] uppercase">Digital Archive Bridge</h3>
+                <div class="flex items-center justify-center gap-1.5 py-1 px-3 bg-red-50 border border-red-100 rounded-full">
+                  <div class="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>
+                  <span class="text-[9px] font-bold text-red-600 uppercase tracking-tighter">Qr will be not availaible in {timeLeft}</span>
+                </div>
+              </div>
               
               <div class="bg-stone-50 p-4 rounded-2xl border border-stone-100">
                 {#if qrModalImage}
                   <img src={qrModalImage} alt="QR Code" class="w-64 h-64" />
                 {:else}
-                  <div class="w-64 h-64 flex items-center justify-center text-stone-400 text-[10px] italic">
+                  <div class="w-64 h-64 flex items-center justify-center text-stone-400 text-[10px] italic text-balance">
                     Generate an export first to activate link.
                   </div>
                 {/if}
@@ -1431,8 +1541,12 @@
 
               <div class="space-y-2 w-full">
                 <p class="text-[10px] text-stone-500 font-medium">Scan this to download your archive directly to any mobile device.</p>
-                <p class="text-[9px] text-stone-400 break-all font-mono opacity-60">{globalTheme.qrUrl || 'No link generated yet'}</p>
+                <p class="text-[9px] text-stone-400 break-all font-mono opacity-60 uppercase">{globalTheme.qrUrl || 'No link generated yet'}</p>
               </div>
+
+              <p class="text-[8px] text-stone-400 italic">
+                Files are permanently shredded from the bridge after 5 hours for your privacy.
+              </p>
 
               <button 
                 onclick={() => showQRModal = false}
