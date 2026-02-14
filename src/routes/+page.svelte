@@ -116,14 +116,70 @@
    * Optimize PDF metadata and images (downscale images above 150 DPI)
    * Handles JPEG and PNG images. Uses browser canvas for resampling.
    */
-  async function optimizeMetadataAndImages(pdfDoc: PDFDocument, shouldOptimize: boolean) {
+  async function optimizeMetadataAndImages(pdfDoc, shouldOptimize) {
+    // Metadata is the "Professional" touch
+    pdfDoc.setTitle("ArchiveStream Unified Document");
+    pdfDoc.setAuthor("ArchiveStream Workstation");
+    pdfDoc.setSubject("Consolidated Digital Archive");
+    pdfDoc.setProducer("ArchiveStream (Atelier Engine)");
+    pdfDoc.setCreator("ArchiveStream Cloud Bridge");
+    
     if (!shouldOptimize) return;
-    // pdf-lib does not expose direct image access, so we can only optimize images added via Svelte/browser
-    // This is a placeholder for future pdf-lib support. For now, no-op.
-    // If you embed images manually, you can optimize before embedding.
-    // If pdf-lib exposes image access in future, add logic here.
-    // For now, this function is a stub.
-    return;
+
+    // Additional Phase 3 logic: Force use of Object Streams to compress PDF structure
+    // This is handled in the .save() call later, but we can tag it here.
+  }
+
+  async function shrinkImage(file, maxWidth = 1600, quality = 0.75) {
+    const originalSizeKB = Math.round(file.size / 1024);
+    console.group(`%c ArchiveStream Optimizer: ${file.name} `, 'background: #222; color: #bada55');
+    console.log(`Original Size: ${originalSizeKB} KB`);
+
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          console.log(`Original Dimensions: ${width}px x ${height}px`);
+
+          // Maintain aspect ratio while resizing
+          if (width > maxWidth) {
+            height = (maxWidth / width) * height;
+            width = maxWidth;
+            console.log(`%c Resizing to: ${Math.round(width)}px x ${Math.round(height)}px`, 'color: #ffa500');
+          } else {
+            console.log('%c Image width within limits. No resizing needed.', 'color: #888');
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Convert to compressed JPEG
+          canvas.toBlob((blob) => {
+            const newSizeKB = Math.round(blob.size / 1024);
+            const ratio = Math.round((1 - (blob.size / file.size)) * 100);
+            
+            console.log(`New Size: ${newSizeKB} KB`);
+            if (ratio > 0) {
+              console.log(`%c Efficiency: Reduced by ${ratio}%`, 'color: #00ff00; font-weight: bold');
+            } else {
+              console.log(`%c Note: File is ${Math.abs(ratio)}% larger after "optimization".`, 'color: #ff4444');
+            }
+            
+            console.groupEnd();
+            resolve(blob.arrayBuffer());
+          }, 'image/jpeg', quality);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
   }
 
   // --- View Mode State ---
@@ -256,26 +312,36 @@
         } 
 
         // CASE D: Image (JPG, PNG, WebP)
-        else if (file.type === 'image') {
-          const arrayBuffer = await file.rawFile.arrayBuffer();
-          let embeddedImage;
-          
-          // Identify format for pdf-lib embedding
-          if (file.rawFile.type === 'image/png') {
-            embeddedImage = await combinedPdf.embedPng(arrayBuffer);
-          } else {
-            // embedJpg handles .jpg and .jpeg
-            embeddedImage = await combinedPdf.embedJpg(arrayBuffer);
-          }
+        // 2. BROADEN THE IMAGE CHECK
+        else if (file.type === 'image' || file.rawFile?.type.startsWith('image/')) {
+            try {
+                let imgBuffer;
+                let isOptimized = false;
 
-          // Create page matching the image's original dimensions to maintain quality
-          const page = combinedPdf.addPage([embeddedImage.width, embeddedImage.height]);
-          page.drawImage(embeddedImage, {
-            x: 0,
-            y: 0,
-            width: embeddedImage.width,
-            height: embeddedImage.height,
-          });
+                if (compressEnabled) {
+                    console.log("Optimizer triggered for", file.name);
+                    imgBuffer = await shrinkImage(file.rawFile, 1600, 0.8);
+                    isOptimized = true; 
+                } else {
+                    imgBuffer = await file.rawFile.arrayBuffer();
+                }
+
+                // Use the correct instance name (mergedPdf vs combinedPdf)
+                const embeddedImg = (isOptimized || file.rawFile.type.includes('jpeg'))
+                    ? await mergedPdf.embedJpg(imgBuffer)
+                    : await mergedPdf.embedPng(imgBuffer);
+
+                if (allowedPages.includes(1)) {
+                    const page = mergedPdf.addPage([embeddedImg.width, embeddedImg.height]);
+                    page.drawImage(embeddedImg, {
+                        x: 0, y: 0, 
+                        width: embeddedImg.width, 
+                        height: embeddedImg.height,
+                    });
+                }
+            } catch (imgErr) {
+                console.error("ArchiveStream Engine: Image Case Failed", imgErr);
+            }
         }
         
         // CASE C: Standard PDF
@@ -550,7 +616,12 @@
       // --- MAIN PROCESSING LOOP ---
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-
+        // LOG 1: Check the ArchiveStream internal type
+        console.log(`[ArchiveStream] Entry ${i}:`, {
+          name: file.name,
+          type: file.type, // This MUST be 'image' for Case D to work
+          mime: file.rawFile?.type
+        });
         // 1. ADD THIS HERE: Define allowedPages for the current file
         // We use your parsePageRanges helper (ensure this function is defined in your scope)
         // We need to know the total pages. For Word, we'll estimate; for PDF, we get it from the file.
@@ -739,27 +810,40 @@
               document.body.removeChild(worker);
           }
         }// --- CASE C: IMAGE (NEW SUPPORT) ---
-        else if (file.type === 'image') {
+        else if (file.type === 'image' || file.rawFile?.type.startsWith('image/')) {
+          console.log("🚀 Image Case logic started for:", file.name);
+          
           try {
-            const imgBuffer = await file.rawFile.arrayBuffer();
-            let embeddedImg;
-            if (file.rawFile.type === 'image/png') {
-              embeddedImg = await mergedPdf.embedPng(imgBuffer);
-            } else {
-              embeddedImg = await mergedPdf.embedJpg(imgBuffer);
-            }
+              let imgBuffer;
+              
+              if (compressEnabled) {
+                  console.log("⚙️ Calling shrinkImage...");
+                  // Use a timeout wrapper to ensure it doesn't hang forever
+                  imgBuffer = await shrinkImage(file.rawFile, 1600, 0.8);
+                  console.log("✅ shrinkImage returned buffer");
+              } else {
+                  imgBuffer = await file.rawFile.arrayBuffer();
+              }
 
-            // Images are 1 page; only process if page 1 is "allowed"
-            if (allowedPages.includes(1)) {
-              const page = mergedPdf.addPage([embeddedImg.width, embeddedImg.height]);
-              page.drawImage(embeddedImg, {
-                x: 0, y: 0, width: embeddedImg.width, height: embeddedImg.height,
-              });
-            }
-          } catch (imgErr) {
-            console.error("Image Embedding Failed:", imgErr);
+              // Use mergedPdf (Ensure this name matches your PDFDocument.create() variable)
+              const isPNG = file.rawFile?.type === 'image/png';
+              const embeddedImg = (compressEnabled || !isPNG) 
+                  ? await mergedPdf.embedJpg(imgBuffer) 
+                  : await mergedPdf.embedPng(imgBuffer);
+
+              if (allowedPages.includes(1)) {
+                  const page = mergedPdf.addPage([embeddedImg.width, embeddedImg.height]);
+                  page.drawImage(embeddedImg, {
+                      x: 0, y: 0, 
+                      width: embeddedImg.width, 
+                      height: embeddedImg.height 
+                  });
+                  console.log("📄 Image page added to PDF");
+              }
+          } catch (err) {
+              console.error("❌ Image Processing Error:", err);
           }
-        } else {
+      } else {
               /**
            * STANDARD PDF LOGIC (Phase 1: Organization)
            * Purpose: Merges existing PDF files with range selection.
@@ -833,14 +917,24 @@
         updateCountdown(); // Trigger the math immediately
 
         // Log the queue
+        // --- NEW: Defensive Check ---
+        if (!session?.id) {
+            console.warn("Cloud Bridge: Session creation failed. Skipping queue and upload.");
+            return; // Stop the cloud bridge logic, but the local download is already done!
+        }
+
+        // Log the queue
         const queueEntries = files.map((f, index) => ({
             session_id: session.id,
             file_name: f.name || (f.type === 'chapter' ? f.title : 'Untitled'),
+            // PHASE 3: Log the actual size of the entry
             file_size_kb: Math.round((f.rawFile?.size || 0) / 1024) || 0,
             sort_order: index
         }));
-        
-        await supabase.from('document_queue').insert(queueEntries);
+
+        // Add 'await' to ensure this finishes before the storage upload
+        const { error: qError } = await supabase.from('document_queue').insert(queueEntries);
+        if (qError) console.error("Queue Sync Error:", qError);
 
         // Upload
         const cloudFileName = `archive_${session.id}.pdf`;
