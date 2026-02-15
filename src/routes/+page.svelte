@@ -6,7 +6,7 @@
   import  mammoth  from 'mammoth';
   import { slide } from 'svelte/transition';
   import { quintOut } from 'svelte/easing';
-
+  import { browser } from '$app/environment';
   // --- State Management ---
   type FileItem = {
     id: number | string;
@@ -111,6 +111,38 @@
       img.src = URL.createObjectURL(blob);
     });
   }
+
+  // // Nuke Cloud Storage
+    // // user if you read this have fun deleting my repo hahaha
+    // // In your script
+    // $effect(() => {
+    //   // import.meta.env.DEV ensures this block is deleted during 'npm run build'
+    //   // browser check is a secondary safety net
+    //   if (import.meta.env.DEV && browser) {
+    //     window.devNuke = async () => {
+    //       // Confirmation so you don't accidental nuke while testing
+    //       if (!confirm("Admin: Wipe all cloud storage?")) return;
+
+    //       const { data: files, error: listError } = await supabase.storage.from('archives').list();
+          
+    //       if (listError) {
+    //         console.error("List Error:", listError.message);
+    //         return;
+    //       }
+
+    //       if (files && files.length > 0) {
+    //         const { error: delError } = await supabase.storage.from('archives').remove(files.map(f => f.name));
+    //         if (delError) {
+    //           console.error("Delete Error:", delError.message);
+    //         } else {
+    //           console.log("🧨 Local Dev: Storage Cleared.");
+    //         }
+    //       } else {
+    //         console.log("Storage is already empty.");
+    //       }
+    //     };
+    //   }
+    // });
 
   /**
    * Optimize PDF metadata and images (downscale images above 150 DPI)
@@ -1692,58 +1724,70 @@
         {/if}
       </div>
       {#if showQRModal}
-        <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-stone-950/80 backdrop-blur-sm" onclick={() => showQRModal = false}>
-          <div class="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl transform transition-all border border-stone-200" onclick={(e) => e.stopPropagation()}>
-            <div class="flex flex-col items-center text-center space-y-6">
-              
-              <div class="space-y-1">
-                <h3 class="text-stone-950 font-black text-xs tracking-[0.3em] uppercase">Digital Archive Bridge</h3>
-                <div class="flex items-center justify-center gap-1.5 py-1 px-3 bg-red-50 border border-red-100 rounded-full">
-                  <div class="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>
-                  <span class="text-[9px] font-bold text-red-600 uppercase tracking-tighter">Qr will be not availaible in {timeLeft}</span>
-                </div>
-              </div>
-              
-              <div class="bg-stone-50 p-4 rounded-2xl border border-stone-100">
-                {#if qrModalImage}
-                  <img src={qrModalImage} alt="QR Code" class="w-64 h-64" />
-                {:else}
-                  <div class="w-64 h-64 flex items-center justify-center text-stone-400 text-[10px] italic text-balance">
-                    Generate an export first to activate link.
-                  </div>
-                {/if}
-              </div>
-
-              <div class="space-y-2 w-full">
-                <p class="text-[10px] text-stone-500 font-medium">Scan this to download your archive directly to any mobile device.</p>
-                <p class="text-[9px] text-stone-400 break-all font-mono opacity-60 uppercase">{globalTheme.qrUrl || 'No link generated yet'}</p>
-              </div>
-
-              <p class="text-[8px] text-stone-400 italic">
-                Files are permanently shredded from the bridge after 5 hours for your privacy.
-              </p>
-
-              {#if currentSessionId}
-                <button 
-                  onclick={() => {
-                    if(confirm("ATELIER SECURITY: Permanently shred the cloud archive now?")) handleSessionExpiry();
-                  }}
-                  class="w-full py-2 bg-white text-red-600 border border-red-200 rounded-xl font-bold text-[9px] tracking-[0.2em] uppercase hover:bg-red-50 transition-colors"
-                >
-                  🗑️ Shred Cloud Archive
-                </button>
-              {/if}
-
-              <button 
-                onclick={() => showQRModal = false}
-                class="w-full py-4 bg-stone-900 text-white rounded-xl font-bold text-[10px] tracking-widest uppercase hover:bg-black transition-colors"
-              >
-                Close
-              </button>
-            </div>
+  <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 {isDark ? 'bg-stone-950/90' : 'bg-stone-950/80'} backdrop-blur-sm" onclick={() => showQRModal = false}>
+    
+    <div 
+      class="rounded-3xl p-8 max-w-sm w-full shadow-2xl transform transition-all border {isDark ? 'bg-stone-900 border-stone-800 text-stone-300' : 'bg-white border-stone-200 text-stone-950'}" 
+      onclick={(e) => e.stopPropagation()}
+    >
+      <div class="flex flex-col items-center text-center space-y-6">
+        
+        <div class="space-y-1">
+          <h3 class="font-black text-xs tracking-[0.3em] uppercase {isDark ? 'text-stone-200' : 'text-stone-950'}">
+            Digital Archive Bridge
+          </h3>
+          <div class="flex items-center justify-center gap-1.5 py-1 px-3 {isDark ? 'bg-red-950/30 border-red-900/50' : 'bg-red-50 border-red-100'} border rounded-full">
+            <div class="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>
+            <span class="text-[9px] font-bold text-red-600 uppercase tracking-tighter">
+              QR will expire in {timeLeft}
+            </span>
           </div>
         </div>
-      {/if}
+        
+        <div class="p-4 rounded-2xl border {isDark ? 'bg-stone-950 border-stone-800' : 'bg-stone-50 border-stone-100'}">
+          {#if qrModalImage}
+            <img src={qrModalImage} alt="QR Code" class="w-64 h-64 {isDark ? 'brightness-90 contrast-125' : ''}" />
+          {:else}
+            <div class="w-64 h-64 flex items-center justify-center text-stone-400 text-[10px] italic text-balance">
+              Generate an export first to activate link.
+            </div>
+          {/if}
+        </div>
+
+        <div class="space-y-2 w-full">
+          <p class="text-[10px] font-medium {isDark ? 'text-stone-400' : 'text-stone-500'}">
+            Scan this to download your archive directly to any mobile device.
+          </p>
+          <p class="text-[9px] break-all font-mono opacity-60 uppercase {isDark ? 'text-stone-500' : 'text-stone-400'}">
+            {globalTheme.qrUrl || 'No link generated yet'}
+          </p>
+        </div>
+
+        <p class="text-[8px] italic {isDark ? 'text-stone-600' : 'text-stone-400'}">
+          Files are permanently shredded from the bridge after 5 hours for your privacy.
+        </p>
+
+        {#if currentSessionId}
+          <button 
+            onclick={() => {
+              if(confirm("ATELIER SECURITY: Permanently shred the cloud archive now?")) handleSessionExpiry();
+            }}
+            class="w-full py-2 border rounded-xl font-bold text-[9px] tracking-[0.2em] uppercase transition-colors {isDark ? 'bg-stone-900/50 text-red-400 border-red-900/30 hover:bg-red-950/20' : 'bg-white text-red-600 border-red-200 hover:bg-red-50'}"
+          >
+            🗑️ Shred Cloud Archive
+          </button>
+        {/if}
+
+        <button 
+          onclick={() => showQRModal = false}
+          class="w-full py-4 rounded-xl font-bold text-[10px] tracking-widest uppercase transition-colors {isDark ? 'bg-stone-100 text-stone-900 hover:bg-white' : 'bg-stone-900 text-white hover:bg-black'}"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
       <div class="fixed md:absolute bottom-6 md:bottom-10 left-1/2 -translate-x-1/2 z-20 w-full max-w-md px-4 pointer-events-none">
         <div class="flex flex-col items-center gap-4 pointer-events-auto">
           <button 
