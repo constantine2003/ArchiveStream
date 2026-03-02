@@ -11,6 +11,10 @@ export type FileItem = {
   rawFile?: File;
   title?: string;
   description?: string;
+  // Image-specific size controls
+  imageSizeMode?: 'original' | 'fit' | 'custom';
+  imageCustomWidth?: number;
+  imageCustomHeight?: number;
   [key: string]: any;
 };
 

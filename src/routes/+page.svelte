@@ -343,10 +343,38 @@
               ? await mergedPdf.embedPng(imgBuffer)
               : await mergedPdf.embedJpg(imgBuffer);
 
-            if (allowedPages.includes(1)) {
-              const page = mergedPdf.addPage([embeddedImg.width, embeddedImg.height]);
-              page.drawImage(embeddedImg, { x: 0, y: 0, width: embeddedImg.width, height: embeddedImg.height });
+            // ── SIZE MODE ──
+            const sizeMode = file.imageSizeMode || 'original';
+
+            let pageW: number;
+            let pageH: number;
+            let drawW: number;
+            let drawH: number;
+
+            if (sizeMode === 'fit') {
+              // A4 in points (1pt = 1/72 inch): 595 × 842
+              pageW = 595.28;
+              pageH = 841.89;
+              // Stretch to fill — no letterbox, image fills the whole page
+              drawW = pageW;
+              drawH = pageH;
+            } else if (sizeMode === 'custom') {
+              // User-defined px — treat px as pt (close enough for screen/print)
+              pageW = file.imageCustomWidth || embeddedImg.width;
+              pageH = file.imageCustomHeight || embeddedImg.height;
+              drawW = pageW;
+              drawH = pageH;
+            } else {
+              // Original — page = image's natural dimensions
+              pageW = embeddedImg.width;
+              pageH = embeddedImg.height;
+              drawW = embeddedImg.width;
+              drawH = embeddedImg.height;
             }
+
+            const page = mergedPdf.addPage([pageW, pageH]);
+            page.drawImage(embeddedImg, { x: 0, y: 0, width: drawW, height: drawH });
+
           } catch (err) {
             console.error('Image processing error:', err);
           }

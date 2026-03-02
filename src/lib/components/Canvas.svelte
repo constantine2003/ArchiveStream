@@ -104,30 +104,98 @@
       {:else}
         <section id={file.id ? String(file.id) : ''}
           class="group transition-all duration-300 {store.activeFileId === String(file.id) ? (store.isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}">
-          <!-- Scope bar -->
-          <div class="flex flex-wrap items-center justify-between gap-4 mb-4 px-4 py-3 rounded-lg border
-                      {store.isDark ? 'bg-stone-900/50 border-stone-800' : 'bg-stone-50 border-stone-200'}">
-            <div class="flex items-center gap-3">
-              <span class="text-[10px] font-black uppercase tracking-tighter {store.isDark ? 'text-stone-400' : 'text-stone-500'}">Scope:</span>
-              <div class="flex p-1 rounded-md {store.isDark ? 'bg-stone-800' : 'bg-stone-200'}">
-                <button onclick={() => { file.selectionType = 'all'; file.pageSelection = 'all'; }}
-                  class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType !== 'custom' ? (store.isDark ? 'bg-stone-700 text-white' : 'bg-white text-stone-900 shadow-sm') : 'text-stone-500'}">ALL</button>
-                <button onclick={() => { file.selectionType = 'custom'; if (!file.pageSelection || file.pageSelection === 'all') file.pageSelection = ''; }}
-                  class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType === 'custom' ? (store.isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white shadow-sm') : 'text-stone-500'}">CUSTOM</button>
+
+          {#if file.type === 'image'}
+            <!-- ── IMAGE SIZE BAR ── -->
+            <div class="flex flex-wrap items-center justify-between gap-4 mb-4 px-4 py-3 rounded-lg border
+                        {store.isDark ? 'bg-stone-900/50 border-stone-800' : 'bg-stone-50 border-stone-200'}">
+              <div class="flex items-center gap-3">
+                <span class="text-[10px] font-black uppercase tracking-tighter {store.isDark ? 'text-stone-400' : 'text-stone-500'}">Size:</span>
+                <div class="flex p-1 rounded-md {store.isDark ? 'bg-stone-800' : 'bg-stone-200'}">
+                  <button
+                    onclick={() => { file.imageSizeMode = 'original'; }}
+                    class="px-3 py-1 text-[10px] font-bold rounded transition-colors
+                           {(!file.imageSizeMode || file.imageSizeMode === 'original') ? (store.isDark ? 'bg-stone-700 text-white' : 'bg-white text-stone-900 shadow-sm') : 'text-stone-500'}">
+                    ORIGINAL
+                  </button>
+                  <button
+                    onclick={() => { file.imageSizeMode = 'fit'; }}
+                    class="px-3 py-1 text-[10px] font-bold rounded transition-colors
+                           {file.imageSizeMode === 'fit' ? (store.isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white shadow-sm') : 'text-stone-500'}">
+                    FIT A4
+                  </button>
+                  <button
+                    onclick={() => { file.imageSizeMode = 'custom'; file.imageCustomWidth = file.imageCustomWidth || 800; file.imageCustomHeight = file.imageCustomHeight || 600; }}
+                    class="px-3 py-1 text-[10px] font-bold rounded transition-colors
+                           {file.imageSizeMode === 'custom' ? (store.isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white shadow-sm') : 'text-stone-500'}">
+                    CUSTOM
+                  </button>
+                </div>
+              </div>
+
+              {#if file.imageSizeMode === 'custom'}
+                <div class="flex items-center gap-2">
+                  <input
+                    type="number"
+                    placeholder="W"
+                    bind:value={file.imageCustomWidth}
+                    min="1"
+                    max="9999"
+                    class="w-20 pl-3 py-1.5 text-xs font-mono bg-transparent border-b-2 outline-none transition-colors text-center
+                           {store.isDark ? 'border-stone-700 focus:border-amber-500 text-stone-300' : 'border-stone-300 focus:border-stone-900 text-stone-700'}"
+                  />
+                  <span class="text-[10px] font-bold {store.isDark ? 'text-stone-600' : 'text-stone-400'}">×</span>
+                  <input
+                    type="number"
+                    placeholder="H"
+                    bind:value={file.imageCustomHeight}
+                    min="1"
+                    max="9999"
+                    class="w-20 pl-3 py-1.5 text-xs font-mono bg-transparent border-b-2 outline-none transition-colors text-center
+                           {store.isDark ? 'border-stone-700 focus:border-amber-500 text-stone-300' : 'border-stone-300 focus:border-stone-900 text-stone-700'}"
+                  />
+                  <span class="text-[9px] font-bold {store.isDark ? 'text-stone-600' : 'text-stone-400'}">PX</span>
+                </div>
+              {/if}
+
+              <div class="text-[10px] font-bold {store.isDark ? 'text-amber-500' : 'text-stone-400'}">
+                {#if !file.imageSizeMode || file.imageSizeMode === 'original'}
+                  ORIGINAL SIZE
+                {:else if file.imageSizeMode === 'fit'}
+                  STRETCHED TO A4
+                {:else}
+                  {file.imageCustomWidth || '?'} × {file.imageCustomHeight || '?'} PX
+                {/if}
               </div>
             </div>
-            {#if file.selectionType === 'custom'}
-              <div class="flex-1 max-w-xs relative">
-                <input type="text" placeholder="e.g. 1, 3-5, 10" bind:value={file.pageSelection}
-                  class="w-full pl-3 pr-10 py-1.5 text-xs font-mono bg-transparent border-b-2 outline-none transition-colors
-                         {store.isDark ? 'border-stone-700 focus:border-amber-500' : 'border-stone-300 focus:border-stone-900'}" />
-                <span class="absolute right-0 top-1.5 text-[9px] font-bold {store.isDark ? 'text-stone-600' : 'text-stone-400'}">PG. RANGE</span>
+
+          {:else}
+            <!-- ── PDF PAGE RANGE BAR ── -->
+            <div class="flex flex-wrap items-center justify-between gap-4 mb-4 px-4 py-3 rounded-lg border
+                        {store.isDark ? 'bg-stone-900/50 border-stone-800' : 'bg-stone-50 border-stone-200'}">
+              <div class="flex items-center gap-3">
+                <span class="text-[10px] font-black uppercase tracking-tighter {store.isDark ? 'text-stone-400' : 'text-stone-500'}">Scope:</span>
+                <div class="flex p-1 rounded-md {store.isDark ? 'bg-stone-800' : 'bg-stone-200'}">
+                  <button onclick={() => { file.selectionType = 'all'; file.pageSelection = 'all'; }}
+                    class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType !== 'custom' ? (store.isDark ? 'bg-stone-700 text-white' : 'bg-white text-stone-900 shadow-sm') : 'text-stone-500'}">ALL</button>
+                  <button onclick={() => { file.selectionType = 'custom'; if (!file.pageSelection || file.pageSelection === 'all') file.pageSelection = ''; }}
+                    class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType === 'custom' ? (store.isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white shadow-sm') : 'text-stone-500'}">CUSTOM</button>
+                </div>
               </div>
-            {/if}
-            <div class="text-[10px] font-bold {store.isDark ? 'text-amber-500' : 'text-stone-400'}">
-              {file.selectionType === 'custom' ? 'PARTIAL EXPORT' : 'FULL DOCUMENT'}
+              {#if file.selectionType === 'custom'}
+                <div class="flex-1 max-w-xs relative">
+                  <input type="text" placeholder="e.g. 1, 3-5, 10" bind:value={file.pageSelection}
+                    class="w-full pl-3 pr-10 py-1.5 text-xs font-mono bg-transparent border-b-2 outline-none transition-colors
+                           {store.isDark ? 'border-stone-700 focus:border-amber-500' : 'border-stone-300 focus:border-stone-900'}" />
+                  <span class="absolute right-0 top-1.5 text-[9px] font-bold {store.isDark ? 'text-stone-600' : 'text-stone-400'}">PG. RANGE</span>
+                </div>
+              {/if}
+              <div class="text-[10px] font-bold {store.isDark ? 'text-amber-500' : 'text-stone-400'}">
+                {file.selectionType === 'custom' ? 'PARTIAL EXPORT' : 'FULL DOCUMENT'}
+              </div>
             </div>
-          </div>
+          {/if}
+
           <div class="flex items-center gap-4 mb-4 px-2 md:px-0">
             <span class="text-[10px] font-bold uppercase tracking-[0.2em] {store.isDark ? 'text-stone-500' : 'text-stone-400'}">{file.name}</span>
             <div class="h-px flex-1 {store.isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
