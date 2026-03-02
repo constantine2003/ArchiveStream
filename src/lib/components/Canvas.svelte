@@ -239,8 +239,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12 mb-4 {store.isDark ? 'text-stone-700' : 'text-stone-200'}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
-        <p class="text-[10px] font-bold uppercase tracking-widest leading-tight px-2 line-clamp-2
-        <p class="w-full text-[10px] font-bold uppercase tracking-widest leading-tight px-2 line-clamp-2 break-words overflow-hidden
+        <p class="w-full text-[10px] font-bold uppercase tracking-widest leading-tight px-2 line-clamp-2 wrap-break-word overflow-hidden
           {store.isDark ? 'text-stone-400 group-hover:text-stone-200' : 'text-stone-600 group-hover:text-black'}">{file.name}</p>
         <button aria-label="Remove file"
           onclick={(e) => { e.stopPropagation(); removeFile(typeof file.id === 'number' ? file.id : undefined, i); }}
