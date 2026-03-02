@@ -40,7 +40,7 @@
 
 {#if store.menuVisible}
   <div
-    class="fixed z-[100] w-44 rounded-xl border shadow-2xl backdrop-blur-xl p-1.5
+    class="fixed z-100 w-44 rounded-xl border shadow-2xl backdrop-blur-xl p-1.5
            {store.isDark ? 'bg-stone-900/95 border-stone-700 text-stone-300' : 'bg-white/95 border-stone-200 text-stone-600'}"
     style="top: {store.menuPos.y}px; left: {store.menuPos.x}px;"
     use:clickOutside={closeMenu}

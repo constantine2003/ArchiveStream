@@ -375,3 +375,9 @@
     </button>
   </div>
 </aside>
+
+<style>
+    .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #44403c; border-radius: 10px; }
+</style>

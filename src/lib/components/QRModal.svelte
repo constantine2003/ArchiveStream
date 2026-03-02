@@ -8,7 +8,7 @@
 {#if store.showQRModal}
   <!-- Backdrop -->
   <div
-    class="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-sm
+    class="fixed inset-0 z-100 flex items-center justify-center p-4 backdrop-blur-sm
            {store.isDark ? 'bg-stone-950/90' : 'bg-stone-950/80'}"
     role="presentation"
     onclick={() => (store.showQRModal = false)}

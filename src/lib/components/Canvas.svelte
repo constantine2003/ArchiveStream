@@ -66,8 +66,10 @@
         </section>
 
       {:else if file.type === 'word'}
-        <section id={file.id ? String(file.id) : ''}
-          class="group transition-all duration-300 {store.activeFileId === String(file.id) ? (store.isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}">
+        <section
+          id={file.id ? String(file.id) : ''}
+          class="group transition-all duration-300 rounded-xl overflow-hidden {store.activeFileId === String(file.id) ? (store.isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
+        >
           <!-- Scope bar -->
           <div class="flex flex-wrap items-center justify-between gap-4 mb-4 px-4 py-3 rounded-lg border
                       {store.isDark ? 'bg-stone-900/50 border-stone-800' : 'bg-stone-50 border-stone-200'}">
@@ -96,7 +98,10 @@
             <span class="text-[10px] font-bold uppercase tracking-[0.2em] {store.isDark ? 'text-stone-500' : 'text-stone-400'}">{file.name}</span>
             <div class="h-px flex-1 {store.isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
           </div>
-          <div class="bg-white shadow-lg mx-auto p-6 md:p-12 w-[92%] text-left word-preview-container">
+          <div
+            class="shadow-lg mx-auto p-6 md:p-12 w-[92%] text-left word-preview-container rounded-xl transition-colors duration-300"
+            style="background-color: {store.globalTheme.accentColor.hex}; color: {store.globalTheme.primaryColor.hex};"
+          >
             {@html file.previewHtml}
           </div>
         </section>
@@ -235,7 +240,8 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
         <p class="text-[10px] font-bold uppercase tracking-widest leading-tight px-2 line-clamp-2
-                  {store.isDark ? 'text-stone-400 group-hover:text-stone-200' : 'text-stone-600 group-hover:text-black'}">{file.name}</p>
+        <p class="w-full text-[10px] font-bold uppercase tracking-widest leading-tight px-2 line-clamp-2 break-words overflow-hidden
+          {store.isDark ? 'text-stone-400 group-hover:text-stone-200' : 'text-stone-600 group-hover:text-black'}">{file.name}</p>
         <button aria-label="Remove file"
           onclick={(e) => { e.stopPropagation(); removeFile(typeof file.id === 'number' ? file.id : undefined, i); }}
           class="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:scale-110 shadow-lg">
@@ -267,11 +273,11 @@
         + Chapter
       </button>
       <button onclick={onExport} disabled={store.isExporting}
-        class="flex-[2] py-4 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all">
+        class="flex-2 py-4 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all">
         {store.isExporting ? 'Compressing...' : 'Export PDF'}
       </button>
       <button onclick={onOpenQR} title="View QR Code"
-        class="aspect-square h-[52px] relative flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0">
+        class="aspect-square h-13 relative flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0">
         {#if store.globalTheme.qrUrl}
           <span class="absolute -top-1 -right-1 flex h-3 w-3">
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>

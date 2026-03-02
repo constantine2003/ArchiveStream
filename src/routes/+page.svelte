@@ -270,8 +270,9 @@
           const exportText = isMidnight ? '#1a1a1a' : store.globalTheme.primaryColor.hex;
 
           Object.assign(worker.style, {
-            width: '650px',
-            padding: '40px',
+            width: '794px',
+            padding: '60px 70px',
+            boxSizing: 'border-box',
             backgroundColor: exportBg,
             color: exportText,
             fontFamily: store.globalTheme.fontFamily || 'serif',
@@ -307,10 +308,10 @@
           try {
             const pdfBuf: ArrayBuffer = await html2pdf()
               .set({
-                margin: 0.5,
+                margin: 0,
                 image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2, useCORS: true, backgroundColor: exportBg },
-                jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
+                html2canvas: { scale: 2, useCORS: true, backgroundColor: exportBg, windowWidth: 794 },
+                jsPDF: { unit: 'px', format: [794, 1123], orientation: 'portrait', hotfixes: ['px_scaling'] },
                 pagebreak: { mode: ['avoid-all'] },
               })
               .from(worker)
@@ -492,14 +493,14 @@
 
 <!-- Layout -->
 <div
-  class="flex h-screen w-full transition-colors duration-500 font-sans overflow-hidden relative
-         {store.isDark ? 'bg-stone-950 text-stone-200' : 'bg-stone-50 text-stone-900'}"
+  class="flex h-screen w-full transition-colors duration-500 font-sans overflow-hidden relative"
+  style="background-color: {store.isDark ? 'rgb(12 10 9)' : store.globalTheme.accentColor.hex}; color: {store.isDark ? 'rgb(231 229 228)' : 'rgb(28 25 23)'};"
 >
   <Sidebar fileInput={fileInput} onImport={() => fileInput?.click()} />
 
   <main
-    class="flex-1 relative flex flex-col min-w-0 transition-colors duration-500
-           {store.isDragging ? 'bg-amber-600/5' : store.isDark ? 'bg-[#0c0a09]' : 'bg-stone-50'}"
+    class="flex-1 relative flex flex-col min-w-0 transition-colors duration-500"
+    style="background-color: {store.isDark ? '#0c0a09' : '#ffffff'};"
     ondragover={(e) => { e.preventDefault(); store.isDragging = true; }}
     ondragleave={() => (store.isDragging = false)}
     ondrop={(e) => { e.preventDefault(); store.isDragging = false; if (e.dataTransfer) handleFiles(Array.from(e.dataTransfer.files)); }}
