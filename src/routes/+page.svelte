@@ -197,11 +197,12 @@
 
       // Fonts
       const fontName = store.globalTheme.fontFamily || 'Helvetica';
-      const fontRegular = await mergedPdf.embedFont(StandardFonts[fontName] ?? StandardFonts.Helvetica);
+      const sf = StandardFonts as Record<string, string>;
+      const fontRegular = await mergedPdf.embedFont(sf[fontName] ?? StandardFonts.Helvetica);
       let fontBold = fontRegular;
       for (const variant of [`${fontName}Bold`, `${fontName}-Bold`]) {
-        if (StandardFonts[variant]) {
-          fontBold = await mergedPdf.embedFont(StandardFonts[variant]);
+        if (sf[variant]) {
+          fontBold = await mergedPdf.embedFont(sf[variant]);
           break;
         }
       }
@@ -261,71 +262,25 @@
 
         // ── WORD DOC ──
         else if (file.type === 'word') {
-          // Requires: npm i html2pdf.js
-          const html2pdf = (await import('html2pdf.js')).default;
-          const worker = document.createElement('div');
+          const formData = new FormData();
+          formData.append('file', file.rawFile!);
 
-          const isMidnight = store.globalTheme.preset === 'midnight';
-          const exportBg = isMidnight ? '#ffffff' : store.globalTheme.accentColor.hex;
-          const exportText = isMidnight ? '#1a1a1a' : store.globalTheme.primaryColor.hex;
-
-          Object.assign(worker.style, {
-            width: '794px',
-            padding: '60px 70px',
-            boxSizing: 'border-box',
-            backgroundColor: exportBg,
-            color: exportText,
-            fontFamily: store.globalTheme.fontFamily || 'serif',
-            fontSize: `${store.globalTheme.bodyFontSize || 11}pt`,
-            lineHeight: '1.6',
-            webkitPrintColorAdjust: 'exact',
-            printColorAdjust: 'exact',
+          const response = await fetch('/api/convert-docx', {
+            method: 'POST',
+            body: formData,
           });
 
-          worker.innerHTML = file.previewHtml || '';
+          if (!response.ok) throw new Error('DOCX conversion failed');
 
-          worker.querySelectorAll<HTMLElement>('*').forEach((el) => {
-            el.style.color = 'inherit';
-            el.style.borderColor = 'currentColor';
-          });
-          worker.querySelectorAll<HTMLTableElement>('table').forEach((t) => {
-            t.style.width = '100%';
-            t.style.borderCollapse = 'collapse';
-            t.style.backgroundColor = 'transparent';
-            t.querySelectorAll<HTMLElement>('td, th').forEach((cell) => {
-              cell.style.border = `1px solid ${exportText}`;
-              cell.style.padding = '8px';
-            });
-          });
-          worker.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
-            img.style.maxWidth = '100%';
-            img.style.height = 'auto';
-            img.style.display = 'block';
-            img.style.margin = '20px auto';
-          });
+          const pdfBuffer = await response.arrayBuffer();
+          const wordPdf = await PDFDocument.load(pdfBuffer);
 
-          document.body.appendChild(worker);
-          try {
-            const pdfBuf: ArrayBuffer = await html2pdf()
-              .set({
-                margin: 0,
-                image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2, useCORS: true, backgroundColor: exportBg, windowWidth: 794 },
-                jsPDF: { unit: 'px', format: [794, 1123], orientation: 'portrait', hotfixes: ['px_scaling'] },
-                pagebreak: { mode: ['avoid-all'] },
-              })
-              .from(worker)
-              .outputPdf('arraybuffer');
+          const total = wordPdf.getPageCount();
+          const indices = allowedPages.map((p) => p - 1).filter((idx) => idx >= 0 && idx < total);
 
-            const wordDoc = await PDFDocument.load(pdfBuf);
-            const total = wordDoc.getPageCount();
-            const indices = allowedPages.map((p) => p - 1).filter((idx) => idx >= 0 && idx < total);
-            if (indices.length > 0) {
-              const pages = await mergedPdf.copyPages(wordDoc, indices);
-              pages.forEach((p) => mergedPdf.addPage(p));
-            }
-          } finally {
-            document.body.removeChild(worker);
+          if (indices.length > 0) {
+            const pages = await mergedPdf.copyPages(wordPdf, indices);
+            pages.forEach((p) => mergedPdf.addPage(p));
           }
         }
 
@@ -422,7 +377,7 @@
 
       // ── LOCAL DOWNLOAD ──
       const mergedBytes = await mergedPdf.save({ useObjectStreams: !!store.compressEnabled });
-      const blob = new Blob([mergedBytes], { type: 'application/pdf' });
+      const blob = new Blob([mergedBytes.buffer.slice(0) as ArrayBuffer], { type: 'application/pdf' });
       const exportUrl = URL.createObjectURL(blob);
       const fileName = `ArchiveStream_${Date.now()}.pdf`;
 
@@ -500,7 +455,7 @@
 
   <main
     class="flex-1 relative flex flex-col min-w-0 transition-colors duration-500"
-    style="background-color: {store.isDark ? '#0c0a09' : '#ffffff'};"
+    style="background-color: {store.isDragging ? '' : store.isDark ? '#0c0a09' : store.globalTheme.accentColor.hex};"
     ondragover={(e) => { e.preventDefault(); store.isDragging = true; }}
     ondragleave={() => (store.isDragging = false)}
     ondrop={(e) => { e.preventDefault(); store.isDragging = false; if (e.dataTransfer) handleFiles(Array.from(e.dataTransfer.files)); }}
