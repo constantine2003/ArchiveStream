@@ -169,34 +169,7 @@
       console.error('Shredding failure:', err.message);
     }
   }
-  // Only for DOCX files
-  async function exportDocx(file: FileItem) {
-    if (!file.rawFile || file.type !== 'word') return;
 
-    try {
-      const formData = new FormData();
-      formData.append('file', file.rawFile);
-
-      const res = await fetch('https://archivestream-wxpy.onrender.com/', {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!res.ok) throw new Error('Conversion failed');
-
-      const pdfBlob = await res.blob();
-      const pdfUrl = URL.createObjectURL(pdfBlob);
-
-      // Trigger download
-      const link = document.createElement('a');
-      link.href = pdfUrl;
-      link.download = file.name.replace(/\.docx$/, '.pdf');
-      link.click();
-    } catch (err) {
-      console.error(err);
-      alert('DOCX → PDF conversion failed. Check console.');
-    }
-  }
   // ─── Export ─────────────────────────────────────────────────────────────────
   async function handleExport() {
     if (store.files.length === 0 || store.isExporting) return;
@@ -288,8 +261,46 @@
         }
 
         // ── WORD DOC ──
+        // Sends raw .docx to Supabase Edge Function → perfect fidelity PDF
         else if (file.type === 'word') {
-          await exportDocx(file);
+          if (!file.rawFile) {
+            console.warn('Word file missing rawFile, skipping:', file.name);
+          } else {
+            try {
+              const form = new FormData();
+              form.append('file', file.rawFile, file.rawFile.name);
+
+              const anonKey = import.meta.env.PUBLIC_SUPABASE_ANON_KEY as string;
+              const res = await supabase.functions.invoke('docx-to-pdf', {
+                body: form,
+                headers: { Authorization: `Bearer ${anonKey}` },
+              });
+              if (res.error) throw new Error(res.error.message);
+
+              const pdfBuf: ArrayBuffer = res.data instanceof ArrayBuffer
+                ? res.data
+                : await (res.data as Blob).arrayBuffer();
+
+              const wordDoc = await PDFDocument.load(pdfBuf);
+              const total = wordDoc.getPageCount();
+
+              // Update the file's real page count now that we know it
+              file.pageCount = total;
+
+              // Re-calculate allowedPages using the REAL total, not the old cached 1
+              const realIndices = (file.selectionType === 'custom' && file.pageSelection)
+                ? parsePageRanges(file.pageSelection, total).map((p) => p - 1).filter((idx) => idx >= 0 && idx < total)
+                : Array.from({ length: total }, (_, idx) => idx);
+
+              if (realIndices.length > 0) {
+                const pages = await mergedPdf.copyPages(wordDoc, realIndices);
+                pages.forEach((p) => mergedPdf.addPage(p));
+              }
+            } catch (err) {
+              console.error('DOCX → PDF conversion failed:', err);
+              alert(`Failed to convert "${file.name}".\nError: ${err}`);
+            }
+          }
         }
 
         // ── IMAGE ──
@@ -463,7 +474,7 @@
 
   <main
     class="flex-1 relative flex flex-col min-w-0 transition-colors duration-500"
-    style="background-color: {store.isDragging ? '' : store.isDark ? '#0c0a09' : store.globalTheme.accentColor.hex};"
+    style="background-color: {store.isDark ? '#0c0a09' : '#ffffff'};"
     ondragover={(e) => { e.preventDefault(); store.isDragging = true; }}
     ondragleave={() => (store.isDragging = false)}
     ondrop={(e) => { e.preventDefault(); store.isDragging = false; if (e.dataTransfer) handleFiles(Array.from(e.dataTransfer.files)); }}
