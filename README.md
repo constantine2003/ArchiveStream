@@ -1,6 +1,6 @@
 # ⚡ ARCHIVESTREAM
 
-**ArchiveStream** is a privacy-first PDF workstation for high-speed document sequencing. It processes files entirely client-side, ensuring sensitive data never leaves your browser. Featuring a high-fidelity "Live Stream" UI, it offers secure, serverless merging and real-time previews in one seamless workstation.
+**ArchiveStream** is a privacy-first document workstation for high-speed document sequencing and merging. It processes files entirely client-side, ensuring sensitive data never leaves your browser. Featuring a high-fidelity "Live Stream" UI, it offers secure merging, real-time previews, and cloud sharing in one seamless workstation.
 
 ---
 
@@ -11,10 +11,10 @@
 * **TypeScript** – Type-safe development
 * **pdf-lib** – Client-side PDF manipulation and merging
 * **Tailwind CSS 4** – Utility-first styling with dark mode support
-* **Supabase** – Cloud storage and database for optional sharing
-* **mammoth.js** – Word document parsing
-* **html2pdf.js** – HTML to PDF conversion
+* **Supabase** – Cloud storage, database, and Edge Functions for server-side conversion
+* **mammoth.js** – Word document preview parsing
 * **qrcode** – QR code generation for sharing
+* **ConvertAPI** – Server-side Office → PDF conversion (DOCX, PPTX, XLSX)
 
 ---
 
@@ -22,37 +22,41 @@
 
 ### 📄 Multi-Format Support
 * **PDF** – Merge, reorder, and select specific page ranges
-* **Word Documents (.docx)** – Convert to PDF with formatting preservation
-* **Images** – JPG, PNG, WebP support with multiple sizing modes:
+* **Word Documents (.docx)** – Server-side conversion via ConvertAPI — tables, fonts, images preserved perfectly
+* **PowerPoint (.pptx)** – Full slide deck → PDF conversion, scope/page range supported
+* **Excel (.xlsx)** – Spreadsheet → PDF, each sheet becomes a page, fit-to-width applied
+* **Images** – JPG, PNG, WebP with multiple sizing modes:
   - Original dimensions
   - Fit to A4
-  - Custom dimensions
+  - Custom dimensions (px)
 
-### 🎨 Advanced Customization
-* **Custom Themes** – Multiple color presets (Midnight, etc.)
-* **Typography Control** – Adjustable fonts and sizes for chapters and body text
-* **Watermarking** – Add DRAFT, CONFIDENTIAL, or APPROVED watermarks
-* **Chapter Separators** – Create custom divider pages with titles and descriptions
-* **Dark/Light Mode** – Seamless theme switching
+### 🎨 Design Atelier (Chapter Pages)
+* **Custom Themes** – Presets: Default, Atelier, Midnight, Brutalist
+* **Ink & Paper Colors** – Full color picker for text and background
+* **Typography Control** – Sans, Serif, Monospace, Italic, Bold variants
+* **Live Preview** – See your chapter style update in real-time on the canvas
+* **Watermarking** – DRAFT, CONFIDENTIAL, APPROVED overlays on export
 
 ### 🔧 Document Processing
-* **Zero-Server Processing** – All operations run in your browser
-* **Page Range Selection** – Extract specific pages from PDFs and Word docs (e.g., "1-3,5,8-10")
+* **Client-Side PDF Engine** – pdf-lib handles all PDF/image operations in-browser
+* **Server-Side Office Conversion** – Supabase Edge Function + ConvertAPI for DOCX/PPTX/XLSX
+* **Page Range Selection** – Extract specific pages (e.g. "1-3, 5, 8-10") from any file type
 * **Compression Controls** – Toggle image and metadata optimization
 * **Real-time Preview** – View documents before merging
 * **Drag-and-Drop** – Intuitive file upload and reordering
+* **Chapter Separators** – Custom divider pages with title, subtitle, and theme styling
 
 ### 🌐 Cloud Sharing (Optional)
-* **Supabase Integration** – Optional cloud upload for sharing
+* **Supabase Integration** – Optional cloud upload after export
 * **QR Code Generation** – Instant QR codes for mobile access
-* **Auto-Shred** – Cloud copies expire and auto-delete after 5 hours
+* **Auto-Shred** – Cloud copies auto-delete after 5 hours (pg_cron scheduled)
 * **Export History** – Track your last 5 exports
 
 ### 💻 User Experience
-* **Live Stream UI** – Real-time vertical queue with drag-and-drop
-* **Search & Filter** – Quickly find files in your queue
+* **Live Stream UI** – Real-time vertical queue
+* **Grid View** – Bird's eye view of all files with drag-to-reorder
 * **Context Menu** – Right-click for quick actions
-* **View Modes** – Switch between stream and grid layouts
+* **Dark / Light Mode** – Seamless theme switching
 * **Progress Tracking** – Visual feedback during export
 * **Responsive Design** – Works on desktop and mobile
 
@@ -63,6 +67,8 @@
 ### Prerequisites
 - Node.js (v18 or higher)
 - npm or yarn
+- Supabase project (for cloud features)
+- ConvertAPI account (free tier: 250 conversions/month)
 
 ### Installation
 
@@ -78,13 +84,46 @@ npm install
 npm run dev
 ```
 
+### Environment Variables
+
+Create a `.env` file:
+
+```env
+PUBLIC_SUPABASE_URL=(FINDITONYOOWNIMNOTTELLINGYOU XD)
+PUBLIC_SUPABASE_ANON_KEY=(FINDITONYOOWNIMNOTTELLINGYOU XD)
+```
+
+### Supabase Setup
+
+1. Create a `sessions` table and `document_queue` table (see schema in `/supabase`)
+2. Create a storage bucket called `archives`
+3. Enable `pg_cron` extension and schedule auto-shred:
+
+```sql
+select cron.schedule(
+  'shred-old-sessions',
+  '0 * * * *',
+  $$ delete from sessions where created_at < now() - interval '5 hours'; $$
+);
+```
+
+### Edge Function Deployment
+
+```bash
+# Link your project
+supabase link --project-ref (FINDITONYOOWNIMNOTTELLINGYOU XD)
+
+# Set your ConvertAPI secret (free at convertapi.com)
+supabase secrets set CONVERTAPI_SECRET=(IMNOTTELLINGYOULMAO)
+
+# Deploy
+supabase functions deploy docx-to-pdf --no-verify-jwt
+```
+
 ### Build for Production
 
 ```bash
-# Create optimized build
 npm run build
-
-# Preview production build
 npm run preview
 ```
 
@@ -92,10 +131,10 @@ npm run preview
 
 ## 🔒 Privacy & Security
 
-* **Client-Side Processing** – All document operations happen in your browser
-* **No Data Collection** – Your files never touch external servers (unless you opt-in to cloud sharing)
+* **Client-Side Processing** – PDF and image operations happen entirely in your browser
+* **No Data Collection** – Files never touch external servers unless you opt-in to cloud sharing
+* **Office Conversion** – DOCX/PPTX/XLSX files are sent to ConvertAPI via a Supabase Edge Function and immediately discarded
 * **Optional Cloud Sync** – Supabase integration is opt-in and temporary (5-hour auto-delete)
-* **Local Storage** – Preferences stored locally in your browser
 
 ---
 
@@ -104,46 +143,46 @@ npm run preview
 ```
 src/
 ├── lib/
-│   ├── components/      # Svelte components
-│   │   ├── Canvas.svelte
-│   │   ├── Sidebar.svelte
+│   ├── components/
+│   │   ├── Canvas.svelte          # Main document viewer
+│   │   ├── Sidebar.svelte         # Controls, theme, watermark
 │   │   ├── ContextMenu.svelte
 │   │   ├── ExportOverlay.svelte
 │   │   └── QRModal.svelte
-│   ├── stores/          # State management
-│   │   └── archiveState.svelte.ts
-│   ├── utils/           # Utility functions
-│   │   ├── pdfUtils.ts
-│   │   └── themeUtils.ts
+│   ├── stores/
+│   │   └── archiveState.svelte.ts # Centralized reactive store
+│   ├── utils/
+│   │   ├── pdfUtils.ts            # PDF helpers, compression
+│   │   └── themeUtils.ts          # Theme presets, font maps
 │   ├── supabaseClient.ts
 │   └── types.ts
-└── routes/              # SvelteKit routes
+└── routes/
     ├── +layout.svelte
-    └── +page.svelte
+    └── +page.svelte               # Main orchestration + export logic
+
+supabase/
+└── functions/
+    └── docx-to-pdf/
+        └── index.ts               # Edge function: DOCX/PPTX/XLSX → PDF
 ```
 
 ---
 
 ## 🎯 Usage
 
-1. **Import Files** – Click "Import" or drag-and-drop PDFs, Word docs, or images
+1. **Import Files** – Click "Import" or drag-and-drop PDFs, Word docs, PowerPoints, Excel sheets, or images
 2. **Organize** – Drag to reorder, add chapter separators, select page ranges
-3. **Customize** – Apply themes, watermarks, and adjust settings
-4. **Export** – Generate merged PDF with optional cloud sharing
+3. **Customize** – Apply themes, watermarks, and typography to chapter pages
+4. **Export** – Generate merged PDF with optional cloud sharing and QR code
 
 ---
 
 ## 📝 Development
 
 ```bash
-# Type checking
-npm run check
-
-# Linting
-npm run lint
-
-# Format code
-npm run format
+npm run check   # Type checking
+npm run lint    # Linting
+npm run format  # Format code
 ```
 
 ---
@@ -157,14 +196,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## 📄 License
 
 MIT
-
----
-
-## 🔗 Links
-
-- [Supabase Documentation](https://supabase.com/docs)
-- [Svelte 5 Documentation](https://svelte.dev/docs)
-- [pdf-lib Documentation](https://pdf-lib.js.org/)
 
 ---
 

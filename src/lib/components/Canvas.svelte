@@ -67,7 +67,7 @@
           </div>
         </section>
 
-      {:else if file.type === 'word'}
+      {:else if file.type === 'word' || file.type === 'ppt' || file.type === 'excel'}
         <section
           id={file.id ? String(file.id) : ''}
           class="group transition-all duration-300 rounded-xl overflow-hidden {store.activeFileId === String(file.id) ? (store.isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
@@ -100,12 +100,31 @@
             <span class="text-[10px] font-bold uppercase tracking-[0.2em] {store.isDark ? 'text-stone-500' : 'text-stone-400'}">{file.name}</span>
             <div class="h-px flex-1 {store.isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
           </div>
-          <div
-            class="shadow-lg mx-auto p-6 md:p-12 w-[92%] text-left word-preview-container rounded-xl transition-colors duration-300"
-            style="background-color: {store.isDark ? '#1c1917' : '#ffffff'}; color: {store.isDark ? '#e7e5e4' : '#1c1917'};"
-          >
-            {@html file.previewHtml}
-          </div>
+          {#if file.type === 'word'}
+            <div
+              class="shadow-lg mx-auto p-6 md:p-12 w-[92%] text-left word-preview-container rounded-xl transition-colors duration-300"
+              style="background-color: {store.isDark ? '#1c1917' : '#ffffff'}; color: {store.isDark ? '#e7e5e4' : '#1c1917'};"
+            >
+              {@html file.previewHtml}
+            </div>
+          {:else}
+            <!-- PPT / Excel placeholder -->
+            <div class="mx-auto w-[92%] rounded-xl border-2 border-dashed flex flex-col items-center justify-center py-16 gap-4
+                        {store.isDark ? 'border-stone-800 bg-stone-900/30' : 'border-stone-200 bg-stone-50'}">
+              {#if file.type === 'ppt'}
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-14 h-14 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 12h10M7 8h6m-6 8h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z" />
+                </svg>
+                <p class="text-[11px] font-bold uppercase tracking-widest text-orange-400">PowerPoint — Will convert on export</p>
+              {:else}
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-14 h-14 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 10h18M3 6h18M3 14h18M3 18h18M9 3v18M15 3v18" />
+                </svg>
+                <p class="text-[11px] font-bold uppercase tracking-widest text-emerald-400">Excel — Each sheet = one page on export</p>
+              {/if}
+              <p class="text-[10px] {store.isDark ? 'text-stone-600' : 'text-stone-400'}">{file.name}</p>
+            </div>
+          {/if}
         </section>
 
       {:else}
@@ -274,11 +293,11 @@
         + Chapter
       </button>
       <button onclick={onExport} disabled={store.isExporting}
-        class="flex-2 py-4 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all">
+        class="flex-[2] py-4 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all">
         {store.isExporting ? 'Compressing...' : 'Export PDF'}
       </button>
       <button onclick={onOpenQR} title="View QR Code"
-        class="aspect-square h-13 relative flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0">
+        class="aspect-square h-[52px] relative flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0">
         {#if store.globalTheme.qrUrl}
           <span class="absolute -top-1 -right-1 flex h-3 w-3">
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>

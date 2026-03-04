@@ -6,7 +6,7 @@ export type FileItem = {
   pageSelection?: string;
   selectionType: 'all' | 'custom';
   pageCount?: number;
-  type?: 'pdf' | 'word' | 'image' | 'chapter';
+  type?: 'pdf' | 'word' | 'ppt' | 'excel' | 'image' | 'chapter';
   previewHtml?: string;
   rawFile?: File;
   title?: string;
