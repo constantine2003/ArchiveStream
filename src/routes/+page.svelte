@@ -195,20 +195,27 @@
         norm(store.globalTheme.accentColor.b)
       );
 
-      // Fonts
-      const fontName = store.globalTheme.fontFamily || 'Helvetica';
+      // Fonts — map our font keys to exact StandardFonts enum keys
+      // StandardFonts enum: key=TimesRoman, value=Times-Roman (pdf-lib uses key for embedFont)
+      const pdfFontMap: Record<string, string> = {
+        'Helvetica':         'Helvetica',
+        'Helvetica-Bold':    'HelveticaBold',
+        'Helvetica-Oblique': 'HelveticaOblique',
+        'Times-Roman':       'TimesRoman',
+        'Times-Bold':        'TimesRomanBold',
+        'Times-Italic':      'TimesRomanItalic',
+        'Courier':           'Courier',
+        'Courier-Bold':      'CourierBold',
+        'Symbol':            'Symbol',
+        'ZapfDingbats':      'ZapfDingbats',
+      };
       const sf = StandardFonts as Record<string, string>;
-      const fontRegular = await mergedPdf.embedFont(sf[fontName] ?? StandardFonts.Helvetica);
-      let fontBold = fontRegular;
-      for (const variant of [`${fontName}Bold`, `${fontName}-Bold`]) {
-        if (sf[variant]) {
-          fontBold = await mergedPdf.embedFont(sf[variant]);
-          break;
-        }
-      }
-      if (fontBold === fontRegular) {
-        fontBold = await mergedPdf.embedFont(StandardFonts.HelveticaBold);
-      }
+      const fontKey = pdfFontMap[store.globalTheme.fontFamily] ?? 'Helvetica';
+      const fontRegular = await mergedPdf.embedFont(sf[fontKey] ?? StandardFonts.Helvetica);
+      // Bold variant for watermarks/chapter titles
+      const boldFontKey = pdfFontMap[store.globalTheme.fontFamily + '-Bold']
+        ?? (fontKey.includes('Times') ? 'TimesRomanBold' : 'HelveticaBold');
+      const fontBold = await mergedPdf.embedFont(sf[boldFontKey] ?? StandardFonts.HelveticaBold);
 
       // ── MAIN LOOP ──
       for (let i = 0; i < store.files.length; i++) {

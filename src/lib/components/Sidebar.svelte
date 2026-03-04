@@ -345,7 +345,7 @@
               <div class="w-1/3 h-0.5 mb-3 opacity-40 rounded-full" style="background-color: {store.globalTheme.primaryColor.hex};"></div>
               <h1 class="leading-tight mb-1 truncate"
                 style="color: {store.globalTheme.primaryColor.hex}; font-family: {store.globalTheme.fontFamily}; font-size: {store.globalTheme.chapterFontSize / 10}px;">
-                Chapter
+                The Archive
               </h1>
               <div class="w-full h-[0.5px] mb-2 opacity-20" style="background-color: {store.globalTheme.primaryColor.hex};"></div>
               <div class="space-y-1">

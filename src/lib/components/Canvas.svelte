@@ -1,6 +1,7 @@
 <script lang="ts">
   import { supabase } from '$lib/supabaseClient';
   import { store } from '$lib/stores/archiveState.svelte';
+  import { getCssFontFamily, getCssFontStyle, getCssFontWeight } from '$lib/utils/themeUtils';
 
   type Props = {
     onOpenContextMenu: (e: MouseEvent, index: number) => void;
@@ -47,13 +48,13 @@
             <span class="text-[10px] font-black uppercase tracking-[0.4em] text-amber-600 mb-8">Section Break</span>
             <textarea bind:value={file.title} rows="1"
               class="bg-transparent text-4xl md:text-6xl text-center w-full outline-none border-b border-transparent focus:border-amber-500/30 pb-4 transition-all resize-none overflow-hidden"
-              style="color: {store.globalTheme.primaryColor.hex}; font-family: {store.globalTheme.fontFamily}, serif;"
+              style="color: {store.globalTheme.primaryColor.hex}; font-family: {getCssFontFamily(store.globalTheme.fontFamily)}; font-weight: {getCssFontWeight(store.globalTheme.fontFamily)}; font-style: {getCssFontStyle(store.globalTheme.fontFamily)};"
               placeholder="Enter Title..."
               oninput={(e) => { e.currentTarget.style.height = 'auto'; e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px'; }}
             ></textarea>
             <textarea bind:value={file.description}
               class="mt-6 bg-transparent text-base md:text-xl text-center w-full max-w-2xl outline-none resize-none overflow-hidden opacity-70 focus:opacity-100 transition-all"
-              style="color: {store.globalTheme.primaryColor.hex}; font-family: {store.globalTheme.fontFamily}, serif;"
+              style="color: {store.globalTheme.primaryColor.hex}; font-family: {getCssFontFamily(store.globalTheme.fontFamily)}; font-weight: {getCssFontWeight(store.globalTheme.fontFamily)}; font-style: {getCssFontStyle(store.globalTheme.fontFamily)};"
               placeholder="Add a subtitle..."
               oninput={(e) => { e.currentTarget.style.height = 'auto'; e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px'; }}
             ></textarea>
@@ -273,11 +274,11 @@
         + Chapter
       </button>
       <button onclick={onExport} disabled={store.isExporting}
-        class="flex-[2] py-4 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all">
+        class="flex-2 py-4 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all">
         {store.isExporting ? 'Compressing...' : 'Export PDF'}
       </button>
       <button onclick={onOpenQR} title="View QR Code"
-        class="aspect-square h-[52px] relative flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0">
+        class="aspect-square h-13 relative flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0">
         {#if store.globalTheme.qrUrl}
           <span class="absolute -top-1 -right-1 flex h-3 w-3">
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
