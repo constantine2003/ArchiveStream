@@ -10,18 +10,38 @@ const app = express();
 const upload = multer({ dest: os.tmpdir() });
 const port = process.env.PORT || 10000;
 
-// On Render (Linux), just use soffice
+/* LibreOffice path */
 const librePath =
   process.platform === "win32"
     ? `"C:\\Program Files\\LibreOffice\\program\\soffice.exe"`
     : "soffice";
 
-app.use(cors()); // Proper CORS
+/* =========================
+   MIDDLEWARE
+========================= */
+
+app.use(cors());
 app.use(express.json());
+
+/* =========================
+   HEALTH CHECK (Render)
+========================= */
+
+app.get("/healthz", (req, res) => {
+  res.status(200).send("OK");
+});
+
+/* =========================
+   ROOT CHECK
+========================= */
 
 app.get("/", (req, res) => {
   res.send("ArchiveStream DOCX → PDF API is running 🚀");
 });
+
+/* =========================
+   DOCX → PDF CONVERSION
+========================= */
 
 app.post("/convert-docx", upload.single("file"), async (req, res) => {
   if (!req.file) {
@@ -38,11 +58,15 @@ app.post("/convert-docx", upload.single("file"), async (req, res) => {
     await new Promise((resolve, reject) => {
       exec(
         `${librePath} --headless --convert-to pdf --outdir "${outputDir}" "${tempInput}"`,
+        { timeout: 20000 }, // 20 second timeout protection
         (err, stdout, stderr) => {
           console.log("LibreOffice stdout:", stdout);
           console.error("LibreOffice stderr:", stderr);
-          if (err) reject(err);
-          else resolve();
+
+          if (err) {
+            return reject(err);
+          }
+          resolve();
         }
       );
     });
@@ -65,13 +89,17 @@ app.post("/convert-docx", upload.single("file"), async (req, res) => {
     res.send(pdfBuffer);
   } catch (err) {
     console.error("DOCX → PDF conversion error:", err);
-    res.status(500).send("Conversion failed. Check server logs.");
+    res.status(500).send("Conversion failed.");
   } finally {
     if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput);
     if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput);
   }
 });
 
-app.listen(port, () =>
-  console.log(`DOCX converter running on port ${port}`)
-);
+/* =========================
+   START SERVER (ALWAYS LAST)
+========================= */
+
+app.listen(port, "0.0.0.0", () => {
+  console.log(`DOCX converter running on port ${port}`);
+});
