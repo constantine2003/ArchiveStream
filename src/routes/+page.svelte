@@ -62,14 +62,21 @@
       (f) =>
         f.type === 'application/pdf' ||
         f.type.includes('wordprocessingml') ||
+        f.type.includes('presentationml') ||
+        f.type.includes('spreadsheetml') ||
         f.type.startsWith('image/') ||
-        f.name.endsWith('.docx')
+        f.name.endsWith('.docx') ||
+        f.name.endsWith('.pptx') ||
+        f.name.endsWith('.xlsx')
     );
 
     const newItems: FileItem[] = [];
 
     for (const file of valid) {
       const isWord = file.name.endsWith('.docx') || file.type.includes('wordprocessingml');
+      const isPPT = file.name.endsWith('.pptx') || file.type.includes('presentationml');
+      const isExcel = file.name.endsWith('.xlsx') || file.type.includes('spreadsheetml');
+      const isOffice = isWord || isPPT || isExcel;
       const isImage = file.type.startsWith('image/');
       let previewHtml = '';
       let pageCount = 1;
@@ -79,7 +86,7 @@
           const buf = await file.arrayBuffer();
           const result = await mammoth.convertToHtml({ arrayBuffer: buf });
           previewHtml = result.value;
-        } else if (!isImage) {
+        } else if (!isImage && !isPPT && !isExcel) {
           const buf = await file.arrayBuffer();
           const pdf = await PDFDocument.load(buf);
           pageCount = pdf.getPageCount();
@@ -88,7 +95,7 @@
         newItems.push({
           id: crypto.randomUUID(),
           name: file.name,
-          type: isWord ? 'word' : isImage ? 'image' : 'pdf',
+          type: isWord ? 'word' : isPPT ? 'ppt' : isExcel ? 'excel' : isImage ? 'image' : 'pdf',
           url: URL.createObjectURL(file),
           previewHtml,
           rawFile: file,
@@ -195,20 +202,27 @@
         norm(store.globalTheme.accentColor.b)
       );
 
-      // Fonts
-      const fontName = store.globalTheme.fontFamily || 'Helvetica';
+      // Fonts — map our font keys to exact StandardFonts enum keys
+      // StandardFonts enum: key=TimesRoman, value=Times-Roman (pdf-lib uses key for embedFont)
+      const pdfFontMap: Record<string, string> = {
+        'Helvetica':         'Helvetica',
+        'Helvetica-Bold':    'HelveticaBold',
+        'Helvetica-Oblique': 'HelveticaOblique',
+        'Times-Roman':       'TimesRoman',
+        'Times-Bold':        'TimesRomanBold',
+        'Times-Italic':      'TimesRomanItalic',
+        'Courier':           'Courier',
+        'Courier-Bold':      'CourierBold',
+        'Symbol':            'Symbol',
+        'ZapfDingbats':      'ZapfDingbats',
+      };
       const sf = StandardFonts as Record<string, string>;
-      const fontRegular = await mergedPdf.embedFont(sf[fontName] ?? StandardFonts.Helvetica);
-      let fontBold = fontRegular;
-      for (const variant of [`${fontName}Bold`, `${fontName}-Bold`]) {
-        if (sf[variant]) {
-          fontBold = await mergedPdf.embedFont(sf[variant]);
-          break;
-        }
-      }
-      if (fontBold === fontRegular) {
-        fontBold = await mergedPdf.embedFont(StandardFonts.HelveticaBold);
-      }
+      const fontKey = pdfFontMap[store.globalTheme.fontFamily] ?? 'Helvetica';
+      const fontRegular = await mergedPdf.embedFont(sf[fontKey] ?? StandardFonts.Helvetica);
+      // Bold variant for watermarks/chapter titles
+      const boldFontKey = pdfFontMap[store.globalTheme.fontFamily + '-Bold']
+        ?? (fontKey.includes('Times') ? 'TimesRomanBold' : 'HelveticaBold');
+      const fontBold = await mergedPdf.embedFont(sf[boldFontKey] ?? StandardFonts.HelveticaBold);
 
       // ── MAIN LOOP ──
       for (let i = 0; i < store.files.length; i++) {
@@ -260,9 +274,9 @@
           }
         }
 
-        // ── WORD DOC ──
-        // Sends raw .docx to Supabase Edge Function → perfect fidelity PDF
-        else if (file.type === 'word') {
+        // ── OFFICE FILES (DOCX / PPTX / XLSX) ──
+        // Sends file to Supabase Edge Function → ConvertAPI → PDF
+        else if (file.type === 'word' || file.type === 'ppt' || file.type === 'excel') {
           if (!file.rawFile) {
             console.warn('Word file missing rawFile, skipping:', file.name);
           } else {
@@ -455,7 +469,7 @@
   bind:this={fileInput}
   type="file"
   multiple
-  accept=".pdf,.docx,.jpg,.jpeg,.png,.webp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png,image/webp"
+  accept=".pdf,.docx,.pptx,.xlsx,.jpg,.jpeg,.png,.webp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/jpeg,image/png,image/webp"
   class="hidden"
   onchange={(e) => { if (e.currentTarget.files) handleFiles(Array.from(e.currentTarget.files)); }}
 />
