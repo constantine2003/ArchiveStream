@@ -169,7 +169,34 @@
       console.error('Shredding failure:', err.message);
     }
   }
+  // Only for DOCX files
+  async function exportDocx(file: FileItem) {
+    if (!file.rawFile || file.type !== 'word') return;
 
+    try {
+      const formData = new FormData();
+      formData.append('file', file.rawFile);
+
+      const res = await fetch('https://archivestream-wxpy.onrender.com/', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) throw new Error('Conversion failed');
+
+      const pdfBlob = await res.blob();
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+
+      // Trigger download
+      const link = document.createElement('a');
+      link.href = pdfUrl;
+      link.download = file.name.replace(/\.docx$/, '.pdf');
+      link.click();
+    } catch (err) {
+      console.error(err);
+      alert('DOCX → PDF conversion failed. Check console.');
+    }
+  }
   // ─── Export ─────────────────────────────────────────────────────────────────
   async function handleExport() {
     if (store.files.length === 0 || store.isExporting) return;
@@ -262,26 +289,7 @@
 
         // ── WORD DOC ──
         else if (file.type === 'word') {
-          const formData = new FormData();
-          formData.append('file', file.rawFile!);
-
-          const response = await fetch('/api/convert-docx', {
-            method: 'POST',
-            body: formData,
-          });
-
-          if (!response.ok) throw new Error('DOCX conversion failed');
-
-          const pdfBuffer = await response.arrayBuffer();
-          const wordPdf = await PDFDocument.load(pdfBuffer);
-
-          const total = wordPdf.getPageCount();
-          const indices = allowedPages.map((p) => p - 1).filter((idx) => idx >= 0 && idx < total);
-
-          if (indices.length > 0) {
-            const pages = await mergedPdf.copyPages(wordPdf, indices);
-            pages.forEach((p) => mergedPdf.addPage(p));
-          }
+          await exportDocx(file);
         }
 
         // ── IMAGE ──
