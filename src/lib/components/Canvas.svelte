@@ -42,17 +42,18 @@
 
       {#if file.type === 'chapter'}
         <section id={file.id ? String(file.id) : undefined} class="max-w-4xl mx-auto my-12 group transition-all">
-          <div class="border-2 border-dashed rounded-2xl p-12 md:p-20 flex flex-col items-center justify-center
-                      {store.isDark ? 'bg-stone-900/30 border-stone-800' : 'bg-stone-50 border-stone-200'}">
+          <div class="border-2 border-dashed rounded-2xl p-12 md:p-20 flex flex-col items-center justify-center transition-colors duration-300"
+               style="background-color: {store.globalTheme.accentColor.hex}; border-color: {store.globalTheme.primaryColor.hex}33;">
             <span class="text-[10px] font-black uppercase tracking-[0.4em] text-amber-600 mb-8">Section Break</span>
             <textarea bind:value={file.title} rows="1"
-              class="bg-transparent text-4xl md:text-6xl font-serif text-center w-full outline-none border-b border-transparent focus:border-amber-500/30 pb-4 transition-all resize-none overflow-hidden
-                     {store.isDark ? 'text-stone-200' : 'text-stone-800'}"
+              class="bg-transparent text-4xl md:text-6xl text-center w-full outline-none border-b border-transparent focus:border-amber-500/30 pb-4 transition-all resize-none overflow-hidden"
+              style="color: {store.globalTheme.primaryColor.hex}; font-family: {store.globalTheme.fontFamily}, serif;"
               placeholder="Enter Title..."
               oninput={(e) => { e.currentTarget.style.height = 'auto'; e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px'; }}
             ></textarea>
             <textarea bind:value={file.description}
-              class="mt-6 bg-transparent text-base md:text-xl font-sans text-stone-500 text-center w-full max-w-2xl outline-none resize-none overflow-hidden opacity-70 focus:opacity-100"
+              class="mt-6 bg-transparent text-base md:text-xl text-center w-full max-w-2xl outline-none resize-none overflow-hidden opacity-70 focus:opacity-100 transition-all"
+              style="color: {store.globalTheme.primaryColor.hex}; font-family: {store.globalTheme.fontFamily}, serif;"
               placeholder="Add a subtitle..."
               oninput={(e) => { e.currentTarget.style.height = 'auto'; e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px'; }}
             ></textarea>
@@ -100,7 +101,7 @@
           </div>
           <div
             class="shadow-lg mx-auto p-6 md:p-12 w-[92%] text-left word-preview-container rounded-xl transition-colors duration-300"
-            style="background-color: {store.globalTheme.accentColor.hex}; color: {store.globalTheme.primaryColor.hex};"
+            style="background-color: {store.isDark ? '#1c1917' : '#ffffff'}; color: {store.isDark ? '#e7e5e4' : '#1c1917'};"
           >
             {@html file.previewHtml}
           </div>
@@ -239,8 +240,8 @@
         <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12 mb-4 {store.isDark ? 'text-stone-700' : 'text-stone-200'}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
-        <p class="w-full text-[10px] font-bold uppercase tracking-widest leading-tight px-2 line-clamp-2 wrap-break-word overflow-hidden
-          {store.isDark ? 'text-stone-400 group-hover:text-stone-200' : 'text-stone-600 group-hover:text-black'}">{file.name}</p>
+        <p class="text-[10px] font-bold uppercase tracking-widest leading-tight px-2 line-clamp-2
+                  {store.isDark ? 'text-stone-400 group-hover:text-stone-200' : 'text-stone-600 group-hover:text-black'}">{file.name}</p>
         <button aria-label="Remove file"
           onclick={(e) => { e.stopPropagation(); removeFile(typeof file.id === 'number' ? file.id : undefined, i); }}
           class="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:scale-110 shadow-lg">
@@ -272,11 +273,11 @@
         + Chapter
       </button>
       <button onclick={onExport} disabled={store.isExporting}
-        class="flex-2 py-4 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all">
+        class="flex-[2] py-4 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all">
         {store.isExporting ? 'Compressing...' : 'Export PDF'}
       </button>
       <button onclick={onOpenQR} title="View QR Code"
-        class="aspect-square h-13 relative flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0">
+        class="aspect-square h-[52px] relative flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0">
         {#if store.globalTheme.qrUrl}
           <span class="absolute -top-1 -right-1 flex h-3 w-3">
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>

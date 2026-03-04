@@ -253,7 +253,7 @@
         <div class="space-y-3 max-w-full overflow-hidden">
           <p class="text-[9px] font-bold text-stone-400 uppercase tracking-tighter mb-1 italic border-t pt-3
                     {store.isDark ? 'border-stone-800' : 'border-stone-100'}">
-            Design Atelier <span class="opacity-70 ml-1">(Docx & Chapters)</span>
+            Design Atelier <span class="opacity-70 ml-1">(Chapter file only)</span>
           </p>
 
           <div class="px-1">
@@ -285,12 +285,12 @@
             </select>
           </div>
 
-          <div class="px-1 py-1">
+          <!-- <div class="px-1 py-1">
             <p class="text-[7px] font-medium text-amber-600/80 uppercase tracking-widest flex items-center gap-1">
               <span class="w-1 h-1 rounded-full bg-amber-500 animate-pulse"></span>
               Note: Color & Paper adjustments only apply to Chapter Pages
             </p>
-          </div>
+          </div> -->
 
           <div class="grid grid-cols-2 gap-2 px-1">
             <div>
@@ -335,7 +335,7 @@
             {/each}
           </div>
 
-          <!-- Preview -->
+          <!-- Preview
           <div class="mt-2 p-3 rounded-xl border shadow-inner {store.isDark ? 'bg-stone-900/50 border-stone-800' : 'bg-white border-stone-200'}">
             <p class="text-[8px] font-bold text-stone-400 uppercase tracking-widest mb-2">Preview</p>
             <div
@@ -345,7 +345,7 @@
               <div class="w-1/3 h-0.5 mb-3 opacity-40 rounded-full" style="background-color: {store.globalTheme.primaryColor.hex};"></div>
               <h1 class="leading-tight mb-1 truncate"
                 style="color: {store.globalTheme.primaryColor.hex}; font-family: {store.globalTheme.fontFamily}; font-size: {store.globalTheme.chapterFontSize / 10}px;">
-                The Archive
+                Chapter
               </h1>
               <div class="w-full h-[0.5px] mb-2 opacity-20" style="background-color: {store.globalTheme.primaryColor.hex};"></div>
               <div class="space-y-1">
@@ -359,7 +359,7 @@
                 {store.globalTheme.fontFamily} — {store.globalTheme.bodyFontSize}pt
               </span>
             </div>
-          </div>
+          </div> -->
         </div>
       </div>
     {/if}
