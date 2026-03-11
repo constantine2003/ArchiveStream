@@ -2,7 +2,185 @@
   import { supabase } from '$lib/supabaseClient';
   import { onMount } from 'svelte';
   import { PDFDocument } from 'pdf-lib';
-  import mammoth from 'mammoth';
+  import { rgb, degrees, StandardFonts } from 'pdf-lib';
+  import  mammoth  from 'mammoth';
+  import { slide } from 'svelte/transition';
+  import { quintOut } from 'svelte/easing';
+
+  // --- State Management ---
+  type FileItem = {
+    id: number | string;
+    name: string;
+    url?: string;
+    isEditing?: boolean;
+    pageSelection?: string;
+    selectionType: 'all' | 'custom';
+    pageCount?: number;
+    type?: 'pdf' | 'word' | 'chapter'; 
+    previewHtml?: string; 
+    rawFile?: File; 
+    title?: string; 
+    description?: string; // <--- MUST HAVE THIS
+    [key: string]: any;   // The "Safety Net" - allows any extra properties
+  };
+    
+  let files = $state<FileItem[]>([]);
+    // --- Add Chapter/Separator Page ---
+    function addChapter() {
+      // Use FileItem directly. This tells TS to check the master list above.
+      const newChapter: FileItem = {
+        id: crypto.randomUUID(),
+        type: "chapter",
+        title: "New Chapter",
+        description: '', 
+        name: "Separator Page", 
+        selectionType: "all",
+        isEditing: false
+      };
+      
+      files = [...files, newChapter];
+    }
+    
+  let activeFileId = $state<string | null>(null);
+    /**
+     * Synchronizes the sidebar selection with the canvas scroll position.
+     * @param {string} fileId - The unique ID of the PDF file.
+     */
+    function handleSidebarSync(fileId: string) {
+      activeFileId = String(fileId);
+      const targetElement = document.getElementById(fileId);
+      if (targetElement) {
+        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+  let exportHistory = $state<{ name: string; date: string; url: string }[]>([]);
+  let searchQuery = $state("");
+  let isDragging = $state(false);
+  let isExporting = $state(false);
+  let exportProgress = $state(0);
+  let showSuccess = $state(false);
+  let fileInput: HTMLInputElement;
+  let isDark = $state(false);
+  let sidebarOpen = $state(false);
+  let compressEnabled = $state(true);
+  let settingsExpanded = $state(false);
+  /**
+   * Resample an image to ~150 DPI (max 1200px on long side), keeping aspect ratio.
+   * @param {Uint8Array|ArrayBuffer} imageBytes - Raw image bytes.
+   * @param {string} mimeType - 'image/jpeg' or 'image/png'.
+   * @param {number} [maxDpi=150] - Target DPI (not used directly, but maxDim is set for 150 DPI).
+   * @returns {Promise<Uint8Array>} - Compressed image bytes.
+   */
+  async function resampleImage(imageBytes: Uint8Array | ArrayBuffer, mimeType: string, maxDpi = 150) {
+    return new Promise((resolve, reject) => {
+      // Always convert to ArrayBuffer for Blob compatibility
+      let arrayBuffer: ArrayBuffer;
+      if (imageBytes instanceof Uint8Array) {
+        arrayBuffer = imageBytes.buffer as ArrayBuffer;
+      } else if (imageBytes instanceof ArrayBuffer) {
+        arrayBuffer = imageBytes;
+      } else {
+        arrayBuffer = new ArrayBuffer(0);
+      }
+      const blob = new Blob([arrayBuffer], { type: mimeType });
+      const img = new Image();
+      img.onload = () => {
+        // Target max dimension for 150 DPI (e.g., 8.5in * 150 = 1275px, so 1200px is a good cap)
+        const maxDim = 1200;
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const width = Math.round(img.width * scale);
+        const height = Math.round(img.height * scale);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          return reject(new Error('Could not get canvas 2D context'));
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Always output JPEG for best compression
+        canvas.toBlob(async (result) => {
+          if (!result) return reject(new Error('Canvas export failed'));
+          const buf = await result.arrayBuffer();
+          resolve(new Uint8Array(buf));
+        }, 'image/jpeg', 0.7);
+      };
+      img.onerror = reject;
+      img.src = URL.createObjectURL(blob);
+    });
+  }
+
+  /**
+   * Optimize PDF metadata and images (downscale images above 150 DPI)
+   * Handles JPEG and PNG images. Uses browser canvas for resampling.
+   */
+  async function optimizeMetadataAndImages(pdfDoc, shouldOptimize) {
+    // Metadata is the "Professional" touch
+    pdfDoc.setTitle("ArchiveStream Unified Document");
+    pdfDoc.setAuthor("ArchiveStream Workstation");
+    pdfDoc.setSubject("Consolidated Digital Archive");
+    pdfDoc.setProducer("ArchiveStream (Atelier Engine)");
+    pdfDoc.setCreator("ArchiveStream Cloud Bridge");
+    
+    if (!shouldOptimize) return;
+
+    // Additional Phase 3 logic: Force use of Object Streams to compress PDF structure
+    // This is handled in the .save() call later, but we can tag it here.
+  }
+
+  async function shrinkImage(file, maxWidth = 1600, quality = 0.75) {
+    const originalSizeKB = Math.round(file.size / 1024);
+    console.group(`%c ArchiveStream Optimizer: ${file.name} `, 'background: #222; color: #bada55');
+    console.log(`Original Size: ${originalSizeKB} KB`);
+
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          console.log(`Original Dimensions: ${width}px x ${height}px`);
+
+          // Maintain aspect ratio while resizing
+          if (width > maxWidth) {
+            height = (maxWidth / width) * height;
+            width = maxWidth;
+            console.log(`%c Resizing to: ${Math.round(width)}px x ${Math.round(height)}px`, 'color: #ffa500');
+          } else {
+            console.log('%c Image width within limits. No resizing needed.', 'color: #888');
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Convert to compressed JPEG
+          canvas.toBlob((blob) => {
+            const newSizeKB = Math.round(blob.size / 1024);
+            const ratio = Math.round((1 - (blob.size / file.size)) * 100);
+            
+            console.log(`New Size: ${newSizeKB} KB`);
+            if (ratio > 0) {
+              console.log(`%c Efficiency: Reduced by ${ratio}%`, 'color: #00ff00; font-weight: bold');
+            } else {
+              console.log(`%c Note: File is ${Math.abs(ratio)}% larger after "optimization".`, 'color: #ff4444');
+            }
+            
+            console.groupEnd();
+            resolve(blob.arrayBuffer());
+          }, 'image/jpeg', quality);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
 
   import Sidebar from '$lib/components/Sidebar.svelte';
   import Canvas from '$lib/components/Canvas.svelte';
@@ -550,12 +728,293 @@
 
       <!-- Scrollable canvas area -->
       <div class="flex-1 overflow-y-auto p-4 pt-20 md:p-8 md:pt-20 pb-32 custom-scrollbar scroll-smooth">
-        <Canvas
-          onOpenContextMenu={openContextMenu}
-          onAddChapter={addChapter}
-          onExport={handleExport}
-          onOpenQR={openQRModal}
-        />
+        {#if viewMode === 'stream'}
+          <div class="max-w-4xl mx-auto space-y-12 md:space-y-24">
+            {#each files as file, i (file.id)}
+              {#if file.type === 'chapter'}
+                <section id={file.id ? String(file.id) : undefined} class="max-w-4xl mx-auto my-12 group transition-all">
+                  <div class="bg-stone-50 {isDark ? 'bg-stone-900/30' : 'bg-stone-50'} border-2 border-dashed {isDark ? 'border-stone-800' : 'border-stone-200'} rounded-2xl p-12 md:p-20 flex flex-col items-center justify-center">
+                    
+                    <span class="text-[10px] font-black uppercase tracking-[0.4em] text-amber-600 mb-8">Section Break</span>
+                    
+                    <textarea 
+                      bind:value={file.title}
+                      rows="1"
+                      class="bg-transparent text-4xl md:text-6xl font-serif text-stone-800 {isDark ? 'text-stone-200' : 'text-stone-800'} text-center w-full outline-none border-b border-transparent focus:border-amber-500/30 pb-4 transition-all resize-none overflow-hidden"
+                      placeholder="Enter Title..."
+                      oninput={(e) => {
+                        e.currentTarget.style.height = 'auto';
+                        e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
+                      }}
+                    ></textarea>
+
+                    <textarea 
+                      bind:value={file.description}
+                      class="mt-6 bg-transparent text-base md:text-xl font-sans text-stone-500 text-center w-full max-w-2xl outline-none resize-none overflow-hidden opacity-70 focus:opacity-100"
+                      placeholder="Add a subtitle..."
+                      oninput={(e) => {
+                        e.currentTarget.style.height = 'auto';
+                        e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
+                      }}
+                    ></textarea>
+
+                    <div class="mt-10 flex gap-4">
+                      <button 
+                        onclick={() => removeFile(typeof file.id === 'number' ? file.id : undefined, i)} 
+                        class="px-4 py-2 text-[10px] font-bold text-red-500/70 hover:text-red-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all border border-transparent hover:border-red-500/20 rounded-lg"
+                      >
+                        Remove Chapter
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              {:else if file.type === 'word'}
+                <section 
+                  id={file.id ? String(file.id) : ''} 
+                  class="group transition-all duration-300 {activeFileId === String(file.id) ? (isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-4 mb-4 px-4 py-3 bg-stone-50 {isDark ? 'bg-stone-900/50' : 'bg-stone-50'} rounded-lg border {isDark ? 'border-stone-800' : 'border-stone-200'}">
+                    <div class="flex items-center gap-3">
+                      <span class="text-[10px] font-black uppercase tracking-tighter {isDark ? 'text-stone-400' : 'text-stone-500'}">Scope:</span>
+                      <div class="flex bg-stone-200 {isDark ? 'bg-stone-800' : 'bg-stone-200'} p-1 rounded-md">
+                        <button 
+                          onclick={() => { 
+                            file.selectionType = 'all'; 
+                            if ('pageSelection' in file) file.pageSelection = 'all'; 
+                          }}
+                          class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType !== 'custom' ? (isDark ? 'bg-stone-700 text-white' : 'bg-white text-stone-900 shadow-sm') : 'text-stone-500'}">
+                          ALL
+                        </button>
+                        <button 
+                          onclick={() => { 
+                            file.selectionType = 'custom'; 
+                            if ('pageSelection' in file) {
+                              if (!file.pageSelection || file.pageSelection === 'all') file.pageSelection = '';
+                            }
+                          }}
+                          class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType === 'custom' ? (isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white shadow-sm') : 'text-stone-500'}">
+                          CUSTOM
+                        </button>
+                      </div>
+                    </div>
+                    {#if file.selectionType === 'custom'}
+                      <div class="flex-1 max-w-xs relative">
+                        <input 
+                          type="text" 
+                          placeholder="e.g. 1, 3-5, 10" 
+                          bind:value={file.pageSelection}
+                          class="w-full pl-3 pr-10 py-1.5 text-xs font-mono bg-transparent border-b-2 {isDark ? 'border-stone-700 focus:border-amber-500' : 'border-stone-300 focus:border-stone-900'} outline-none transition-colors"
+                        />
+                        <span class="absolute right-0 top-1.5 text-[9px] font-bold {isDark ? 'text-stone-600' : 'text-stone-400'}">
+                          PG. RANGE
+                        </span>
+                      </div>
+                    {/if}
+                    <div class="text-[10px] font-bold {isDark ? 'text-amber-500' : 'text-stone-400'}">
+                      {file.selectionType === 'custom' ? 'PARTIAL EXPORT' : 'FULL DOCUMENT'}
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-4 mb-4 px-2 md:px-0">
+                    <span class="text-[10px] font-bold {isDark ? 'text-stone-500' : 'text-stone-400'} uppercase tracking-[0.2em]">
+                      {file.name}
+                    </span>
+                    <div class="h-px flex-1 {isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
+                  </div>
+                  <div class="bg-white shadow-lg mx-auto p-6 md:p-12.5 w-[92%] md:w-200.75 text-left">
+                    {@html file.previewHtml}
+                  </div>
+                </section>
+              {:else}
+                <section 
+                  id={file.id ? String(file.id) : ''} 
+                  class="group transition-all duration-300 {activeFileId === String(file.id) ? (isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-4 mb-4 px-4 py-3 bg-stone-50 {isDark ? 'bg-stone-900/50' : 'bg-stone-50'} rounded-lg border {isDark ? 'border-stone-800' : 'border-stone-200'}">
+                    <div class="flex items-center gap-3">
+                      <span class="text-[10px] font-black uppercase tracking-tighter {isDark ? 'text-stone-400' : 'text-stone-500'}">Scope:</span>
+                      <div class="flex bg-stone-200 {isDark ? 'bg-stone-800' : 'bg-stone-200'} p-1 rounded-md">
+                        <button 
+                          onclick={() => { 
+                            file.selectionType = 'all'; 
+                            if ('pageSelection' in file) file.pageSelection = 'all'; 
+                          }}
+                          class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType !== 'custom' ? (isDark ? 'bg-stone-700 text-white' : 'bg-white text-stone-900 shadow-sm') : 'text-stone-500'}">
+                          ALL
+                        </button>
+                        <button 
+                          onclick={() => { 
+                            file.selectionType = 'custom'; 
+                            if ('pageSelection' in file) {
+                              if (!file.pageSelection || file.pageSelection === 'all') file.pageSelection = '';
+                            }
+                          }}
+                          class="px-3 py-1 text-[10px] font-bold rounded {file.selectionType === 'custom' ? (isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white shadow-sm') : 'text-stone-500'}">
+                          CUSTOM
+                        </button>
+                      </div>
+                    </div>
+                    {#if file.selectionType === 'custom'}
+                      <div class="flex-1 max-w-xs relative">
+                        <input 
+                          type="text" 
+                          placeholder="e.g. 1, 3-5, 10" 
+                          bind:value={file.pageSelection}
+                          class="w-full pl-3 pr-10 py-1.5 text-xs font-mono bg-transparent border-b-2 {isDark ? 'border-stone-700 focus:border-amber-500' : 'border-stone-300 focus:border-stone-900'} outline-none transition-colors"
+                        />
+                        <span class="absolute right-0 top-1.5 text-[9px] font-bold {isDark ? 'text-stone-600' : 'text-stone-400'}">
+                          PG. RANGE
+                        </span>
+                      </div>
+                    {/if}
+                    <div class="text-[10px] font-bold {isDark ? 'text-amber-500' : 'text-stone-400'}">
+                      {file.selectionType === 'custom' ? 'PARTIAL EXPORT' : 'FULL DOCUMENT'}
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-4 mb-4 px-2 md:px-0">
+                    <span class="text-[10px] font-bold {isDark ? 'text-stone-500' : 'text-stone-400'} uppercase tracking-[0.2em]">
+                      {file.name}
+                    </span>
+                    <div class="h-px flex-1 {isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
+                  </div>
+                  <div class="bg-white rounded-xl shadow-2xl overflow-hidden border {isDark ? 'border-stone-800' : 'border-stone-200'}">
+                    <iframe src={file.url} title={file.name} class="w-full h-[60vh] md:h-[85vh]"></iframe>
+                  </div>
+                </section>
+              {/if}
+            {/each}
+          </div>
+        {:else}
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 max-w-7xl mx-auto">
+            {#each files as file, i (file.id)}
+              <div 
+                draggable="true"
+                role="listitem"
+                aria-grabbed={draggedIndex === i}
+                ondragstart={() => draggedIndex = i}
+                ondragover={(e) => { e.preventDefault(); dragOverIndex = i; }}
+                ondrop={() => handleDrop(i)}
+                class="group relative aspect-3/4 rounded-2xl border-2 transition-all duration-300 cursor-grab active:cursor-grabbing flex flex-col items-center justify-center p-4 text-center
+                {draggedIndex === i ? 'opacity-20 scale-95' : 'opacity-100'}
+                {dragOverIndex === i ? 'border-amber-500 bg-amber-500/5' : (isDark ? 'border-stone-800 bg-stone-900/40 hover:border-stone-600' : 'border-stone-200 bg-white shadow-sm hover:border-amber-500')}"
+              >
+                <div class="absolute top-3 left-3 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold {isDark ? 'bg-stone-800 text-stone-400' : 'bg-stone-100 text-stone-500'}">
+                  {i + 1}
+                </div>
+
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12 mb-4 {isDark ? 'text-stone-700' : 'text-stone-200'}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+
+                <p class="text-[10px] font-bold uppercase tracking-widest leading-tight px-2 wrap-break-word line-clamp-2 {isDark ? 'text-stone-400 group-hover:text-stone-200' : 'text-stone-600 group-hover:text-black'}">
+                  {file.name}
+                </p>
+
+                <button 
+                  aria-label="Remove file"
+                  onclick={(e) => { 
+                    e.stopPropagation(); 
+                    removeFile(typeof file.id === 'number' ? file.id : undefined, i); 
+                  }}
+                  class="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:scale-110 shadow-lg"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+      {#if showQRModal}
+        <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-stone-950/80 backdrop-blur-sm" onclick={() => showQRModal = false}>
+          <div class="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl transform transition-all border border-stone-200" onclick={(e) => e.stopPropagation()}>
+            <div class="flex flex-col items-center text-center space-y-6">
+              
+              <div class="space-y-1">
+                <h3 class="text-stone-950 font-black text-xs tracking-[0.3em] uppercase">Digital Archive Bridge</h3>
+                <div class="flex items-center justify-center gap-1.5 py-1 px-3 bg-red-50 border border-red-100 rounded-full">
+                  <div class="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>
+                  <span class="text-[9px] font-bold text-red-600 uppercase tracking-tighter">Qr will be not availaible in {timeLeft}</span>
+                </div>
+              </div>
+              
+              <div class="bg-stone-50 p-4 rounded-2xl border border-stone-100">
+                {#if qrModalImage}
+                  <img src={qrModalImage} alt="QR Code" class="w-64 h-64" />
+                {:else}
+                  <div class="w-64 h-64 flex items-center justify-center text-stone-400 text-[10px] italic text-balance">
+                    Generate an export first to activate link.
+                  </div>
+                {/if}
+              </div>
+
+              <div class="space-y-2 w-full">
+                <p class="text-[10px] text-stone-500 font-medium">Scan this to download your archive directly to any mobile device.</p>
+                <p class="text-[9px] text-stone-400 break-all font-mono opacity-60 uppercase">{globalTheme.qrUrl || 'No link generated yet'}</p>
+              </div>
+
+              <p class="text-[8px] text-stone-400 italic">
+                Files are permanently shredded from the bridge after 5 hours for your privacy.
+              </p>
+
+              {#if currentSessionId}
+                <button 
+                  onclick={() => {
+                    if(confirm("ATELIER SECURITY: Permanently shred the cloud archive now?")) handleSessionExpiry();
+                  }}
+                  class="w-full py-2 bg-white text-red-600 border border-red-200 rounded-xl font-bold text-[9px] tracking-[0.2em] uppercase hover:bg-red-50 transition-colors"
+                >
+                  🗑️ Shred Cloud Archive
+                </button>
+              {/if}
+
+              <button 
+                onclick={() => showQRModal = false}
+                class="w-full py-4 bg-stone-900 text-white rounded-xl font-bold text-[10px] tracking-widest uppercase hover:bg-black transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      {/if}
+      <div class="fixed md:absolute bottom-6 md:bottom-10 left-1/2 -translate-x-1/2 z-20 w-full max-w-md px-4 pointer-events-none">
+        <div class="flex flex-col items-center gap-4 pointer-events-auto">
+          <button 
+            onclick={() => compressEnabled = !compressEnabled}
+            class="flex items-center gap-3 px-4 py-2 rounded-full border transition-all shadow-sm
+            {isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-200'}">
+            <span class="text-[9px] font-black uppercase tracking-widest {isDark ? 'text-stone-500' : 'text-stone-400'}">
+              {compressEnabled ? 'Compression On' : 'Original Quality'}
+            </span>
+            <div class="w-8 h-4 rounded-full relative transition-colors {compressEnabled ? 'bg-amber-600' : 'bg-stone-300'}">
+              <div class="absolute top-0.5 transition-all {compressEnabled ? 'right-0.5' : 'left-0.5'} w-3 h-3 bg-white rounded-full"></div>
+            </div>
+          </button>
+          <div class="flex justify-center w-full gap-2">
+            <button onclick={addChapter} class="flex-1 py-4 bg-stone-200 hover:bg-amber-100 text-amber-700 rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-xl transition-all border border-stone-300">
+              + Chapter
+            </button>
+            <button onclick={handleExport} disabled={isExporting} class="flex-2 py-4 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all">
+              {isExporting ? 'Compressing...' : 'Export PDF'}
+            </button>
+            <button 
+              onclick={openQRModal}
+              class="aspect-square h-[52px] relative flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0"
+              title="View QR Code"
+            >
+              {#if globalTheme.qrUrl}
+                <span class="absolute -top-1 -right-1 flex h-3 w-3">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                </span>
+              {/if}
+
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="group-hover:rotate-90 transition-transform duration-300">
+                <rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/>
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
     {/if}
   </main>
