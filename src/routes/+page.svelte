@@ -1,587 +1,319 @@
 <script lang="ts">
-  import { supabase } from '$lib/supabaseClient';
   import { onMount } from 'svelte';
-  import { PDFDocument } from 'pdf-lib';
-  import mammoth from 'mammoth';
 
-  import Sidebar from '$lib/components/Sidebar.svelte';
-  import Canvas from '$lib/components/Canvas.svelte';
-  import ContextMenu from '$lib/components/ContextMenu.svelte';
-  import ExportOverlay from '$lib/components/ExportOverlay.svelte';
-  import QRModal from '$lib/components/QRModal.svelte';
+  let mounted = $state(false);
+  let scrollY = $state(0);
+  let isDark = $state(true);
 
-  import { store, watermarkStyles } from '$lib/stores/archiveState.svelte';
-  import { shrinkImage, parsePageRanges, optimizeMetadataAndImages } from '$lib/utils/pdfUtils';
-  import type { FileItem } from '$lib/types';
-
-  // ─── File Input ────────────────────────────────────────────────────────────
-  let fileInput = $state<HTMLInputElement | undefined>(undefined);
-
-  // ─── Mount ─────────────────────────────────────────────────────────────────
-  onMount(async () => {
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark') store.isDark = true;
-
-    const savedHistory = localStorage.getItem('export_history');
-    if (savedHistory) store.exportHistory = JSON.parse(savedHistory);
-
-    const savedId = localStorage.getItem('activeArchiveId');
-    const savedTime = localStorage.getItem('activeArchiveTime');
-
-    if (savedId && savedTime) {
-      const expiry = new Date(savedTime).getTime() + 5 * 60 * 60 * 1000;
-      if (Date.now() > expiry) {
-        await handleSessionExpiry(savedId);
-      } else {
-        store.currentSessionId = savedId;
-        store.activeSessionTimestamp = savedTime;
-        updateCountdown();
-      }
-    }
-
-    store.files = [];
+  onMount(() => {
+    mounted = true;
+    document.body.style.overflow = '';
+    document.documentElement.style.overflow = '';
+    isDark = localStorage.getItem('theme') !== 'light';
+    const onScroll = () => (scrollY = window.scrollY);
+    window.addEventListener('scroll', onScroll);
+    return () => window.removeEventListener('scroll', onScroll);
   });
 
-  $effect(() => {
-    localStorage.setItem('theme', store.isDark ? 'dark' : 'light');
-    localStorage.setItem('export_history', JSON.stringify(store.exportHistory));
-  });
-
-  // ─── Context Menu ───────────────────────────────────────────────────────────
-  function openContextMenu(e: MouseEvent, index: number) {
-    e.preventDefault();
-    store.menuPos.x = e.clientX;
-    store.menuPos.y = e.clientY;
-    store.activeFileIndex = index;
-    store.menuVisible = true;
+  function toggleTheme() {
+    isDark = !isDark;
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
   }
 
-  // ─── File Ingestion ─────────────────────────────────────────────────────────
-  async function handleFiles(droppedFiles: File[]) {
-    const valid = droppedFiles.filter(
-      (f) =>
-        f.type === 'application/pdf' ||
-        f.type.includes('wordprocessingml') ||
-        f.type.includes('presentationml') ||
-        f.type.includes('spreadsheetml') ||
-        f.type.startsWith('image/') ||
-        f.name.endsWith('.docx') ||
-        f.name.endsWith('.pptx') ||
-        f.name.endsWith('.xlsx')
-    );
+  const features = [
+    { icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />`, label: 'Multi-Format', desc: 'PDF, DOCX, PPTX, XLSX, and images — all merged into one clean PDF.' },
+    { icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />`, label: 'Privacy First', desc: 'PDF and image processing runs entirely in your browser. No uploads, no tracking.' },
+    { icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z" />`, label: 'Edge Powered', desc: 'Office conversion via Supabase Edge Functions. Server-grade fidelity, serverless speed.' },
+    { icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 3.5a.5.5 0 11-1 0 .5.5 0 011 0z" />`, label: 'QR Sharing', desc: 'Instantly share your merged PDF via QR code. Auto-shredded after 5 hours.' },
+    { icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />`, label: 'Design Atelier', desc: 'Custom chapter pages with themes, ink & paper colors, and typography.' },
+    { icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4" />`, label: 'Page Control', desc: 'Select exact page ranges per file. "1-3, 5, 8-10" — precise, surgical exports.' },
+  ];
 
-    const newItems: FileItem[] = [];
+  const formats = [
+    { ext: 'PDF',  color: '#dc2626', darkText: '#f87171', lightText: '#dc2626' },
+    { ext: 'DOCX', color: '#2563eb', darkText: '#60a5fa', lightText: '#2563eb' },
+    { ext: 'PPTX', color: '#ea580c', darkText: '#fb923c', lightText: '#ea580c' },
+    { ext: 'XLSX', color: '#16a34a', darkText: '#34d399', lightText: '#16a34a' },
+    { ext: 'PNG',  color: '#7c3aed', darkText: '#a78bfa', lightText: '#7c3aed' },
+    { ext: 'JPG',  color: '#0891b2', darkText: '#22d3ee', lightText: '#0891b2' },
+  ];
 
-    for (const file of valid) {
-      const isWord = file.name.endsWith('.docx') || file.type.includes('wordprocessingml');
-      const isPPT = file.name.endsWith('.pptx') || file.type.includes('presentationml');
-      const isExcel = file.name.endsWith('.xlsx') || file.type.includes('spreadsheetml');
-      const isOffice = isWord || isPPT || isExcel;
-      const isImage = file.type.startsWith('image/');
-      let previewHtml = '';
-      let pageCount = 1;
-
-      try {
-        if (isWord) {
-          const buf = await file.arrayBuffer();
-          const result = await mammoth.convertToHtml({ arrayBuffer: buf });
-          previewHtml = result.value;
-        } else if (!isImage && !isPPT && !isExcel) {
-          const buf = await file.arrayBuffer();
-          const pdf = await PDFDocument.load(buf);
-          pageCount = pdf.getPageCount();
-        }
-
-        newItems.push({
-          id: crypto.randomUUID(),
-          name: file.name,
-          type: isWord ? 'word' : isPPT ? 'ppt' : isExcel ? 'excel' : isImage ? 'image' : 'pdf',
-          url: URL.createObjectURL(file),
-          previewHtml,
-          rawFile: file,
-          selectionType: 'all',
-          pageCount,
-        });
-      } catch (e) {
-        console.error(`Error processing ${file.name}:`, e);
-      }
-    }
-
-    store.files = [...store.files, ...newItems];
-  }
-
-  // ─── Add Chapter ────────────────────────────────────────────────────────────
-  function addChapter() {
-    const chapter: FileItem = {
-      id: crypto.randomUUID(),
-      type: 'chapter',
-      title: 'New Chapter',
-      description: '',
-      name: 'Separator Page',
-      selectionType: 'all',
-      isEditing: false,
-    };
-    store.files = [...store.files, chapter];
-  }
-
-  // ─── QR Modal ───────────────────────────────────────────────────────────────
-  async function openQRModal() {
-    if (!store.globalTheme.qrUrl) return;
-    const QRCode = await import('qrcode');
-    store.qrModalImage = await QRCode.toDataURL(store.globalTheme.qrUrl, {
-      width: 600,
-      margin: 2,
-      color: { dark: '#0c0a09', light: '#ffffff' },
-    });
-    store.showQRModal = true;
-  }
-
-  // ─── Session Countdown ──────────────────────────────────────────────────────
-  function updateCountdown() {
-    if (!store.activeSessionTimestamp) return;
-    const expiry = new Date(store.activeSessionTimestamp).getTime() + 5 * 60 * 60 * 1000;
-    const diff = expiry - Date.now();
-
-    if (diff <= 0) {
-      store.timeLeft = 'EXPIRED';
-      handleSessionExpiry();
-      return;
-    }
-
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    store.timeLeft = `${String(hours).padStart(2, '0')}h ${String(mins).padStart(2, '0')}m`;
-  }
-
-  setInterval(updateCountdown, 30_000);
-
-  async function handleSessionExpiry(sessionId?: string) {
-    const id = sessionId || store.currentSessionId || localStorage.getItem('activeArchiveId');
-    if (!id) return;
-
-    try {
-      await supabase.storage.from('archives').remove([`archive_${id}.pdf`]);
-      await supabase.from('sessions').delete().eq('id', id);
-
-      localStorage.removeItem('activeArchiveId');
-      localStorage.removeItem('activeArchiveTime');
-      store.activeSessionTimestamp = null;
-      store.currentSessionId = '';
-      store.timeLeft = 'EXPIRED';
-
-      if (document.visibilityState === 'visible') {
-        alert('Archive Shredded: The cloud copy and QR code are now gone.');
-      }
-    } catch (err: any) {
-      console.error('Shredding failure:', err.message);
-    }
-  }
-
-  // ─── Export ─────────────────────────────────────────────────────────────────
-  async function handleExport() {
-    if (store.files.length === 0 || store.isExporting) return;
-
-    try {
-      store.isExporting = true;
-      store.showSuccess = false;
-      store.exportProgress = 0;
-
-      const { PDFDocument, rgb, degrees, StandardFonts } = await import('pdf-lib');
-      const mergedPdf = await PDFDocument.create();
-
-      // Normalise theme colours from 0-255 to 0-1
-      const norm = (v: number) => (v > 1 ? v / 255 : v);
-      const themePrimary = rgb(
-        norm(store.globalTheme.primaryColor.r),
-        norm(store.globalTheme.primaryColor.g),
-        norm(store.globalTheme.primaryColor.b)
-      );
-      const themeAccent = rgb(
-        norm(store.globalTheme.accentColor.r),
-        norm(store.globalTheme.accentColor.g),
-        norm(store.globalTheme.accentColor.b)
-      );
-
-      // Fonts — map our font keys to exact StandardFonts enum keys
-      // StandardFonts enum: key=TimesRoman, value=Times-Roman (pdf-lib uses key for embedFont)
-      const pdfFontMap: Record<string, string> = {
-        'Helvetica':         'Helvetica',
-        'Helvetica-Bold':    'HelveticaBold',
-        'Helvetica-Oblique': 'HelveticaOblique',
-        'Times-Roman':       'TimesRoman',
-        'Times-Bold':        'TimesRomanBold',
-        'Times-Italic':      'TimesRomanItalic',
-        'Courier':           'Courier',
-        'Courier-Bold':      'CourierBold',
-        'Symbol':            'Symbol',
-        'ZapfDingbats':      'ZapfDingbats',
-      };
-      const sf = StandardFonts as Record<string, string>;
-      const fontKey = pdfFontMap[store.globalTheme.fontFamily] ?? 'Helvetica';
-      const fontRegular = await mergedPdf.embedFont(sf[fontKey] ?? StandardFonts.Helvetica);
-      // Bold variant for watermarks/chapter titles
-      const boldFontKey = pdfFontMap[store.globalTheme.fontFamily + '-Bold']
-        ?? (fontKey.includes('Times') ? 'TimesRomanBold' : 'HelveticaBold');
-      const fontBold = await mergedPdf.embedFont(sf[boldFontKey] ?? StandardFonts.HelveticaBold);
-
-      // ── MAIN LOOP ──
-      for (let i = 0; i < store.files.length; i++) {
-        const file = store.files[i];
-
-        const totalPages = file.pageCount ?? 1;
-        const allowedPages =
-          file.selectionType === 'custom' && file.pageSelection
-            ? parsePageRanges(file.pageSelection, totalPages)
-            : Array.from({ length: totalPages }, (_, idx) => idx + 1);
-
-        // ── CHAPTER ──
-        if (file.type === 'chapter') {
-          const page = mergedPdf.addPage([600, 800]);
-          const { width, height } = page.getSize();
-          const margin = 60;
-          const maxW = width - margin * 2;
-
-          page.drawRectangle({ x: 0, y: 0, width, height, color: themeAccent });
-
-          const titleText = (file.title || 'Section').toUpperCase();
-          let titleSize = store.globalTheme.chapterFontSize || 32;
-          if (titleText.length > 25) titleSize *= 0.6;
-          else if (titleText.length > 15) titleSize *= 0.8;
-
-          page.drawText(titleText, {
-            x: margin,
-            y: height - 300,
-            size: titleSize,
-            font: fontBold,
-            color: themePrimary,
-            maxWidth: maxW,
-            lineHeight: titleSize * 1.1,
-          });
-
-          const descText = file.description?.trim() ?? '';
-          if (descText) {
-            const titleLines = Math.ceil((titleText.length * titleSize * 0.6) / maxW);
-            page.drawText(descText, {
-              x: margin,
-              y: height - 300 - titleLines * titleSize - 40,
-              size: 16,
-              font: fontRegular,
-              color: themePrimary,
-              maxWidth: maxW,
-              lineHeight: 20,
-              opacity: 0.75,
-            });
-          }
-        }
-
-        // ── OFFICE FILES (DOCX / PPTX / XLSX) ──
-        // Sends file to Supabase Edge Function → ConvertAPI → PDF
-        else if (file.type === 'word' || file.type === 'ppt' || file.type === 'excel') {
-          if (!file.rawFile) {
-            console.warn('Word file missing rawFile, skipping:', file.name);
-          } else {
-            try {
-              const form = new FormData();
-              form.append('file', file.rawFile, file.rawFile.name);
-
-              const anonKey = import.meta.env.PUBLIC_SUPABASE_ANON_KEY as string;
-              const res = await supabase.functions.invoke('docx-to-pdf', {
-                body: form,
-                headers: { Authorization: `Bearer ${anonKey}` },
-              });
-              if (res.error) throw new Error(res.error.message);
-
-              const pdfBuf: ArrayBuffer = res.data instanceof ArrayBuffer
-                ? res.data
-                : await (res.data as Blob).arrayBuffer();
-
-              const wordDoc = await PDFDocument.load(pdfBuf);
-              const total = wordDoc.getPageCount();
-
-              // Update the file's real page count now that we know it
-              file.pageCount = total;
-
-              // Re-calculate allowedPages using the REAL total, not the old cached 1
-              const realIndices = (file.selectionType === 'custom' && file.pageSelection)
-                ? parsePageRanges(file.pageSelection, total).map((p) => p - 1).filter((idx) => idx >= 0 && idx < total)
-                : Array.from({ length: total }, (_, idx) => idx);
-
-              if (realIndices.length > 0) {
-                const pages = await mergedPdf.copyPages(wordDoc, realIndices);
-                pages.forEach((p) => mergedPdf.addPage(p));
-              }
-            } catch (err) {
-              console.error('DOCX → PDF conversion failed:', err);
-              alert(`Failed to convert "${file.name}".\nError: ${err}`);
-            }
-          }
-        }
-
-        // ── IMAGE ──
-        else if (file.type === 'image' || file.rawFile?.type.startsWith('image/')) {
-          try {
-            let imgBuffer: ArrayBuffer;
-            if (store.compressEnabled) {
-              imgBuffer = await shrinkImage(file.rawFile!, 1600, 0.8);
-            } else {
-              imgBuffer = await file.rawFile!.arrayBuffer();
-            }
-
-            const isPNG = !store.compressEnabled && file.rawFile?.type === 'image/png';
-            const embeddedImg = isPNG
-              ? await mergedPdf.embedPng(imgBuffer)
-              : await mergedPdf.embedJpg(imgBuffer);
-
-            // ── SIZE MODE ──
-            const sizeMode = file.imageSizeMode || 'original';
-
-            let pageW: number;
-            let pageH: number;
-            let drawW: number;
-            let drawH: number;
-
-            if (sizeMode === 'fit') {
-              // A4 in points (1pt = 1/72 inch): 595 × 842
-              pageW = 595.28;
-              pageH = 841.89;
-              // Stretch to fill — no letterbox, image fills the whole page
-              drawW = pageW;
-              drawH = pageH;
-            } else if (sizeMode === 'custom') {
-              // User-defined px — treat px as pt (close enough for screen/print)
-              pageW = file.imageCustomWidth || embeddedImg.width;
-              pageH = file.imageCustomHeight || embeddedImg.height;
-              drawW = pageW;
-              drawH = pageH;
-            } else {
-              // Original — page = image's natural dimensions
-              pageW = embeddedImg.width;
-              pageH = embeddedImg.height;
-              drawW = embeddedImg.width;
-              drawH = embeddedImg.height;
-            }
-
-            const page = mergedPdf.addPage([pageW, pageH]);
-            page.drawImage(embeddedImg, { x: 0, y: 0, width: drawW, height: drawH });
-
-          } catch (err) {
-            console.error('Image processing error:', err);
-          }
-        }
-
-        // ── STANDARD PDF ──
-        else if (file.rawFile) {
-          const pdfBytes = await file.rawFile.arrayBuffer();
-          const pdf = await PDFDocument.load(pdfBytes);
-          const maxPages = pdf.getPageCount();
-          const indices =
-            file.selectionType === 'custom' && file.pageSelection
-              ? parsePageRanges(file.pageSelection, maxPages).map((n) => n - 1)
-              : Array.from({ length: maxPages }, (_, idx) => idx);
-
-          if (indices.length > 0) {
-            const copied = await mergedPdf.copyPages(pdf, indices);
-            copied.forEach((p) => mergedPdf.addPage(p));
-          }
-        }
-
-        store.exportProgress = Math.round(((i + 1) / store.files.length) * 100);
-      }
-
-      // ── WATERMARK ──
-      if (store.activeWatermark !== 'NONE') {
-        const style = watermarkStyles[store.activeWatermark];
-        mergedPdf.getPages().forEach((page) => {
-          const { width, height } = page.getSize();
-          page.drawText(style.text, {
-            x: width / 4,
-            y: height / 3,
-            size: 70,
-            font: fontBold,
-            color: themePrimary,
-            rotate: degrees(45),
-            opacity: style.opacity ?? 0.15,
-          });
-        });
-      }
-
-      // ── METADATA ──
-      await optimizeMetadataAndImages(mergedPdf, !!store.compressEnabled);
-
-      // ── LOCAL DOWNLOAD ──
-      const mergedBytes = await mergedPdf.save({ useObjectStreams: !!store.compressEnabled });
-      const blob = new Blob([mergedBytes.buffer.slice(0) as ArrayBuffer], { type: 'application/pdf' });
-      const exportUrl = URL.createObjectURL(blob);
-      const fileName = `ArchiveStream_${Date.now()}.pdf`;
-
-      const link = document.createElement('a');
-      link.href = exportUrl;
-      link.download = fileName;
-      link.click();
-
-      // ── CLOUD UPLOAD ──
-      try {
-        const { data: session } = await supabase.from('sessions').insert({}).select().single();
-        if (!session?.id) throw new Error('Session creation failed');
-
-        store.currentSessionId = session.id;
-        store.activeSessionTimestamp = session.uploaded_at;
-        updateCountdown();
-
-        const queueEntries = store.files.map((f, idx) => ({
-          session_id: session.id,
-          file_name: f.name || f.title || 'Untitled',
-          file_size_kb: Math.round((f.rawFile?.size ?? 0) / 1024),
-          sort_order: idx,
-        }));
-        await supabase.from('document_queue').insert(queueEntries);
-
-        const cloudName = `archive_${session.id}.pdf`;
-        const { error: uError } = await supabase.storage.from('archives').upload(cloudName, mergedBytes);
-        if (uError) throw uError;
-
-        const { data: { publicUrl } } = supabase.storage.from('archives').getPublicUrl(cloudName);
-        store.globalTheme.qrUrl = publicUrl;
-
-        store.exportHistory = [
-          { name: fileName, date: new Date().toLocaleTimeString(), url: exportUrl, cloudUrl: publicUrl },
-          ...store.exportHistory,
-        ].slice(0, 5);
-      } catch (cloudErr) {
-        console.warn('Cloud sync failed. QR unavailable.', cloudErr);
-      }
-
-      store.showSuccess = true;
-      setTimeout(() => {
-        store.isExporting = false;
-        store.showSuccess = false;
-      }, 2500);
-    } catch (err) {
-      console.error('Export failed:', err);
-      alert('Export failed. Check the console for details.');
-      store.isExporting = false;
-    }
-  }
+  const chips = [
+    { label: 'DOCX', textColor: 'text-blue-400', pos: 'top-32 left-[8%]', anim: 'animate-float-1' },
+    { label: 'PPTX', textColor: 'text-orange-400', pos: 'top-44 right-[10%]', anim: 'animate-float-2' },
+    { label: 'XLSX', textColor: 'text-emerald-400', pos: 'bottom-40 left-[12%]', anim: 'animate-float-3' },
+    { label: 'PDF', textColor: 'text-red-400', pos: 'bottom-52 right-[8%]', anim: 'animate-float-1' },
+    { label: 'PNG', textColor: 'text-violet-400', pos: 'top-64 left-[20%]', anim: 'animate-float-2' },
+  ];
 </script>
 
-<!-- Hidden file input -->
-<input
-  bind:this={fileInput}
-  type="file"
-  multiple
-  accept=".pdf,.docx,.pptx,.xlsx,.jpg,.jpeg,.png,.webp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/jpeg,image/png,image/webp"
-  class="hidden"
-  onchange={(e) => { if (e.currentTarget.files) handleFiles(Array.from(e.currentTarget.files)); }}
-/>
+<svelte:head>
+  <title>ArchiveStream — Document Assembly Workstation</title>
+  <meta name="description" content="Privacy-first PDF workstation. Merge PDFs, Word docs, PowerPoints, Excel sheets and images into one perfect PDF." />
+</svelte:head>
 
-<!-- Overlays -->
-<ExportOverlay />
-<ContextMenu />
-<QRModal onShred={() => handleSessionExpiry()} />
+<div class="min-h-screen overflow-x-hidden transition-colors duration-300 font-sans"
+     style="background-color: {isDark ? '#0c0a09' : '#fafaf9'}; color: {isDark ? '#e7e5e4' : '#1c1917'};">
 
-<!-- Layout -->
-<div
-  class="flex h-screen w-full transition-colors duration-500 font-sans overflow-hidden relative"
-  style="background-color: {store.isDark ? 'rgb(12 10 9)' : store.globalTheme.accentColor.hex}; color: {store.isDark ? 'rgb(231 229 228)' : 'rgb(28 25 23)'};"
->
-  <Sidebar fileInput={fileInput} onImport={() => fileInput?.click()} />
+  <!-- NAV -->
+  <nav class="fixed top-0 left-0 right-0 z-50 transition-all duration-500"
+       style="background: {scrollY > 40 ? (isDark ? 'rgba(12,10,9,0.95)' : 'rgba(250,250,249,0.95)') : 'transparent'};
+              backdrop-filter: {scrollY > 40 ? 'blur(16px)' : 'none'};
+              border-bottom: {scrollY > 40 ? `1px solid ${isDark ? 'rgba(68,64,60,0.4)' : 'rgba(214,211,209,0.6)'}` : '1px solid transparent'};">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+      <span class="font-serif text-xl tracking-tight" style="color: {isDark ? '#ffffff' : '#1c1917'};">
+        ArchiveStream<span class="text-amber-500">.</span>
+      </span>
+      <div class="flex items-center gap-3">
+        <button onclick={toggleTheme}
+          class="p-2 rounded-lg transition-all hover:bg-stone-500/10"
+          style="color: {isDark ? '#a8a29e' : '#78716c'};"
+          title="Toggle theme">
+          {#if isDark}
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M12 5a7 7 0 100 14A7 7 0 0012 5z" />
+            </svg>
+          {:else}
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            </svg>
+          {/if}
+        </button>
+        <a href="https://github.com/constantine2003/ArchiveStream" target="_blank"
+           class="hidden sm:block px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-full border transition-all"
+           style="border-color: {isDark ? '#44403c' : '#d6d3d1'}; color: {isDark ? '#a8a29e' : '#78716c'};">
+          GitHub
+        </a>
+        <a href="/app"
+           class="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold uppercase tracking-widest rounded-full transition-all shadow-lg shadow-amber-900/30 hover:-translate-y-px">
+          Launch App
+        </a>
+      </div>
+    </div>
+  </nav>
 
-  <main
-    class="flex-1 relative flex flex-col min-w-0 transition-colors duration-500"
-    style="background-color: {store.isDark ? '#0c0a09' : '#ffffff'};"
-    ondragover={(e) => { e.preventDefault(); store.isDragging = true; }}
-    ondragleave={() => (store.isDragging = false)}
-    ondrop={(e) => { e.preventDefault(); store.isDragging = false; if (e.dataTransfer) handleFiles(Array.from(e.dataTransfer.files)); }}
-  >
-    <!-- Mobile sidebar toggle -->
-    <button
-      class="absolute top-4 left-4 z-30 md:hidden rounded-lg p-2 shadow-md border
-             {store.isDark ? 'bg-stone-900/80 border-stone-800' : 'bg-white/80 border-stone-200'}"
-      onclick={() => (store.sidebarOpen = true)}
-      aria-label="Open sidebar"
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 {store.isDark ? 'text-stone-200' : 'text-stone-700'}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-      </svg>
-    </button>
+  <!-- HERO -->
+  <section class="relative min-h-screen flex flex-col items-center justify-center px-6 pt-24 pb-32 overflow-hidden">
 
-    {#if store.files.length === 0}
-      <!-- Empty state -->
-      <div class="flex-1 flex flex-col items-center justify-center opacity-30 px-4">
-        <div
-          class="w-14 h-14 md:w-16 md:h-16 mb-4 border border-dashed rounded-full flex items-center justify-center cursor-pointer hover:bg-amber-600/10 transition
-                 {store.isDark ? 'border-stone-700' : 'border-stone-400'}"
-          onclick={() => fileInput?.click()}
-          onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && fileInput?.click()}
-          tabindex="0"
-          role="button"
-          aria-label="Import PDF"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 {store.isDark ? 'text-stone-400' : 'text-stone-600'}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4" />
-          </svg>
+    <!-- Grid bg -->
+    <div class="absolute inset-0 pointer-events-none"
+         style="opacity: {isDark ? 0.04 : 0.06}; background-image: linear-gradient({isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.5)'} 1px, transparent 1px), linear-gradient(90deg, {isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.5)'} 1px, transparent 1px); background-size: 60px 60px;"></div>
+
+    <!-- Amber glow -->
+    <div class="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] rounded-full pointer-events-none"
+         style="opacity: {isDark ? 0.12 : 0.06}; filter: blur(120px); background: radial-gradient(ellipse, #d97706, transparent 70%);"></div>
+
+    <!-- Floating chips — now dark mode aware -->
+    {#each chips as chip}
+      <div class="absolute {chip.pos} {chip.anim}">
+        <div class="px-3 py-1.5 rounded-lg border text-[10px] font-bold backdrop-blur-sm transition-colors duration-300 {chip.textColor}"
+             style="border-color: {isDark ? 'rgba(68,64,60,0.6)' : 'rgba(214,211,209,0.8)'}; background-color: {isDark ? 'rgba(28,25,23,0.85)' : 'rgba(255,255,255,0.85)'}; box-shadow: 0 4px 12px rgba(0,0,0,{isDark ? '0.4' : '0.08'});">
+          {chip.label}
         </div>
-        <p class="text-xs font-bold tracking-[0.3em] uppercase text-center {store.isDark ? 'text-stone-400' : 'text-stone-600'}">
-          Drop Files to Begin
-        </p>
       </div>
-    {:else}
-      <!-- View mode toggle -->
-      <div class="absolute top-4 right-4 z-30 flex gap-2">
-        <button
-          onclick={() => (store.viewMode = 'stream')}
-          class="p-2 rounded-lg transition-all {store.viewMode === 'stream' ? (store.isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white') : (store.isDark ? 'bg-stone-900 text-stone-500' : 'bg-white text-stone-400')}"
-          aria-label="Stream view"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
-        <button
-          onclick={() => (store.viewMode = 'grid')}
-          class="p-2 rounded-lg transition-all {store.viewMode === 'grid' ? (store.isDark ? 'bg-amber-600 text-white' : 'bg-stone-900 text-white') : (store.isDark ? 'bg-stone-900 text-stone-500' : 'bg-white text-stone-400')}"
-          aria-label="Grid view"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-          </svg>
-        </button>
+    {/each}
+
+    <!-- Hero content -->
+    <div class="relative text-center max-w-4xl mx-auto transition-all duration-700"
+         style="opacity: {mounted ? 1 : 0}; transform: {mounted ? 'translateY(0)' : 'translateY(28px'};">
+
+      <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-600/30 bg-amber-600/10 text-amber-400 text-[10px] font-bold uppercase tracking-widest mb-10">
+        <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+        Privacy-First · Serverless · Open Source
       </div>
 
-      <!-- Scrollable canvas area -->
-      <div class="flex-1 overflow-y-auto p-4 pt-20 md:p-8 md:pt-20 pb-32 custom-scrollbar scroll-smooth">
-        <Canvas
-          onOpenContextMenu={openContextMenu}
-          onAddChapter={addChapter}
-          onExport={handleExport}
-          onOpenQR={openQRModal}
-        />
+      <h1 class="font-serif leading-[0.88] tracking-tight mb-8"
+          style="font-size: clamp(3rem, 10vw, 6rem); color: {isDark ? '#ffffff' : '#1c1917'};">
+        Every file.<br/>
+        <span class="text-amber-500">One PDF.</span>
+      </h1>
+
+      <p class="text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed mb-12"
+         style="color: {isDark ? '#a8a29e' : '#57534e'};">
+        Merge PDFs, Word docs, PowerPoints, Excel sheets, and images into a single perfect PDF —
+        processed in your browser, no accounts required.
+      </p>
+
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <a href="/app"
+           class="w-full sm:w-auto px-8 py-4 bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm uppercase tracking-widest rounded-full transition-all shadow-2xl shadow-amber-900/30 hover:-translate-y-0.5 hover:shadow-amber-800/40">
+          Start Merging — Free
+        </a>
+        <a href="https://github.com/constantine2003/ArchiveStream" target="_blank"
+           class="w-full sm:w-auto px-8 py-4 font-bold text-sm uppercase tracking-widest rounded-full transition-all border"
+           style="border-color: {isDark ? '#44403c' : '#d6d3d1'}; color: {isDark ? '#a8a29e' : '#78716c'};">
+          View Source →
+        </a>
       </div>
-    {/if}
-  </main>
+
+      <!-- Stats row -->
+      <div class="flex items-center justify-center gap-8 mt-16 flex-wrap">
+        {#each [['6+', 'File Formats'], ['100%', 'Client-Side'], ['5hr', 'Auto-Shred'], ['0', 'Cost']] as [val, label]}
+          <div class="text-center">
+            <div class="font-serif text-2xl text-amber-500 mb-1">{val}</div>
+            <div class="text-[9px] font-bold uppercase tracking-widest" style="color: {isDark ? '#57534e' : '#a8a29e'};">{label}</div>
+          </div>
+        {/each}
+      </div>
+    </div>
+
+    <!-- Scroll hint -->
+    <div class="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 opacity-25">
+      <span class="text-[9px] uppercase tracking-widest" style="color: {isDark ? '#57534e' : '#a8a29e'};">Scroll</span>
+      <div class="w-px h-8" style="background: linear-gradient(to bottom, {isDark ? '#57534e' : '#a8a29e'}, transparent);"></div>
+    </div>
+  </section>
+
+  <!-- FORMATS STRIP -->
+  <section class="py-10 border-y transition-colors duration-300"
+           style="border-color: {isDark ? 'rgba(68,64,60,0.4)' : 'rgba(214,211,209,0.6)'};">
+    <div class="max-w-6xl mx-auto px-6">
+      <p class="text-center text-[10px] font-bold uppercase tracking-[0.3em] mb-8"
+         style="color: {isDark ? '#57534e' : '#a8a29e'};">Supported Formats</p>
+      <div class="flex flex-wrap justify-center gap-3">
+        {#each formats as f}
+          <div class="flex items-center gap-2.5 px-4 py-2.5 rounded-xl border transition-colors duration-300"
+               style="border-color: {isDark ? f.darkText + '33' : f.lightText + '33'}; background-color: {isDark ? f.darkText + '12' : f.lightText + '10'};">
+            <div class="w-2 h-2 rounded-full" style="background-color: {isDark ? f.darkText : f.lightText};"></div>
+            <span class="text-xs font-bold" style="color: {isDark ? f.darkText : f.lightText};">{f.ext}</span>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="py-32 px-6">
+    <div class="max-w-6xl mx-auto">
+      <div class="text-center mb-20">
+        <p class="text-[10px] font-bold uppercase tracking-[0.3em] text-amber-600 mb-4">What it does</p>
+        <h2 class="font-serif text-4xl sm:text-5xl" style="color: {isDark ? '#ffffff' : '#1c1917'};">Built for the real workflow.</h2>
+        <p class="mt-4 text-sm" style="color: {isDark ? '#57534e' : '#a8a29e'};">Everything you need. Nothing you don't.</p>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 rounded-2xl overflow-hidden border"
+           style="border-color: {isDark ? 'rgba(68,64,60,0.4)' : 'rgba(214,211,209,0.6)'}; gap: 1px; background-color: {isDark ? 'rgba(68,64,60,0.3)' : 'rgba(214,211,209,0.4)'};">
+        {#each features as f}
+          <div class="p-8 transition-colors duration-300 group cursor-default"
+               style="background-color: {isDark ? '#0c0a09' : '#fafaf9'};"
+               onmouseenter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = isDark ? '#141210' : '#f5f5f4'; }}
+               onmouseleave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = isDark ? '#0c0a09' : '#fafaf9'; }}>
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center mb-6 transition-all border"
+                 style="border-color: {isDark ? '#292524' : '#e7e5e4'}; background-color: {isDark ? '#1c1917' : '#ffffff'};">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                {@html f.icon}
+              </svg>
+            </div>
+            <p class="text-xs font-bold uppercase tracking-widest mb-2" style="color: {isDark ? '#78716c' : '#a8a29e'};">{f.label}</p>
+            <p class="text-sm leading-relaxed" style="color: {isDark ? '#a8a29e' : '#78716c'};">{f.desc}</p>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="py-32 px-6 border-t transition-colors duration-300"
+           style="border-color: {isDark ? 'rgba(68,64,60,0.3)' : 'rgba(214,211,209,0.5)'};">
+    <div class="max-w-4xl mx-auto">
+      <div class="text-center mb-20">
+        <p class="text-[10px] font-bold uppercase tracking-[0.3em] text-amber-600 mb-4">How it works</p>
+        <h2 class="font-serif text-4xl sm:text-5xl" style="color: {isDark ? '#ffffff' : '#1c1917'};">Four steps to one file.</h2>
+      </div>
+
+      <div class="space-y-2">
+        {#each [
+          { n: '01', title: 'Drop your files', desc: 'Drag in PDFs, Word docs, PowerPoints, Excel sheets, or images in any order.' },
+          { n: '02', title: 'Organize', desc: 'Reorder files, add chapter separators, select exact page ranges per file.' },
+          { n: '03', title: 'Customize', desc: 'Apply themes, watermarks, and typography to your chapter pages.' },
+          { n: '04', title: 'Export', desc: 'Get a merged PDF instantly. Share via QR code — auto-shredded after 5 hours.' },
+        ] as step}
+          <div class="flex items-start gap-8 p-8 rounded-2xl border transition-all duration-300 cursor-default group"
+               style="border-color: transparent;"
+               onmouseenter={(e) => {
+                 const el = e.currentTarget as HTMLElement;
+                 el.style.borderColor = isDark ? 'rgba(68,64,60,0.5)' : 'rgba(214,211,209,0.8)';
+                 el.style.backgroundColor = isDark ? 'rgba(28,25,23,0.4)' : 'rgba(245,245,244,0.8)';
+               }}
+               onmouseleave={(e) => {
+                 const el = e.currentTarget as HTMLElement;
+                 el.style.borderColor = 'transparent';
+                 el.style.backgroundColor = 'transparent';
+               }}>
+            <span class="font-serif text-4xl shrink-0 transition-colors duration-300 group-hover:text-amber-600/50"
+                  style="color: {isDark ? '#292524' : '#d6d3d1'};">{step.n}</span>
+            <div class="pt-2">
+              <h3 class="font-bold mb-2 transition-colors" style="color: {isDark ? '#e7e5e4' : '#1c1917'};">{step.title}</h3>
+              <p class="text-sm leading-relaxed" style="color: {isDark ? '#57534e' : '#a8a29e'};">{step.desc}</p>
+            </div>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="py-32 px-6 border-t transition-colors duration-300"
+           style="border-color: {isDark ? 'rgba(68,64,60,0.3)' : 'rgba(214,211,209,0.5)'};">
+    <div class="max-w-3xl mx-auto text-center">
+      <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-600/20 bg-amber-600/5 text-amber-500/80 text-[10px] font-bold uppercase tracking-widest mb-8">
+        Free · Open Source · No Sign-up
+      </div>
+      <h2 class="font-serif text-4xl sm:text-6xl leading-tight mb-8" style="color: {isDark ? '#ffffff' : '#1c1917'};">
+        Stop converting<br/>one file at a time.
+      </h2>
+      <p class="text-lg mb-12 max-w-xl mx-auto" style="color: {isDark ? '#57534e' : '#a8a29e'};">
+        ArchiveStream runs in your browser. No accounts. No limits. No nonsense.
+      </p>
+      <a href="/app"
+         class="inline-flex items-center gap-3 px-10 py-5 bg-amber-600 hover:bg-amber-500 text-white font-bold uppercase tracking-widest rounded-full transition-all text-sm shadow-2xl shadow-amber-900/40 hover:-translate-y-0.5">
+        Open ArchiveStream
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+        </svg>
+      </a>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="border-t py-10 px-6 transition-colors duration-300"
+          style="border-color: {isDark ? 'rgba(68,64,60,0.3)' : 'rgba(214,211,209,0.5)'};">
+    <div class="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+      <span class="font-serif" style="color: {isDark ? '#44403c' : '#a8a29e'};">
+        ArchiveStream<span class="text-amber-600">.</span>
+      </span>
+      <p class="text-[10px] uppercase tracking-widest" style="color: {isDark ? '#44403c' : '#c4c0bc'};">
+        Built by Daniel Montesclaros · MIT License
+      </p>
+      <a href="https://github.com/constantine2003/ArchiveStream" target="_blank"
+         class="text-[10px] uppercase tracking-widest transition-colors hover:text-amber-500"
+         style="color: {isDark ? '#44403c' : '#a8a29e'};">
+        GitHub →
+      </a>
+    </div>
+  </footer>
 </div>
 
 <style>
-  :global(body) {
-    margin: 0;
-    overflow: hidden;
-    font-family: 'Inter', sans-serif;
+  @keyframes float-1 {
+    0%   { opacity: 0; transform: translateY(12px); }
+    15%  { opacity: 1; }
+    85%  { opacity: 1; }
+    100% { opacity: 0; transform: translateY(-12px); }
   }
-  .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-  .custom-scrollbar::-webkit-scrollbar-thumb { background: #44403c; border-radius: 10px; }
-
-  :global(.word-preview-container table) {
-    width: 100% !important;
-    table-layout: fixed;
-    border-collapse: collapse;
-    margin-bottom: 1rem;
+  @keyframes float-2 {
+    0%   { opacity: 0; transform: translateY(-10px); }
+    15%  { opacity: 1; }
+    85%  { opacity: 1; }
+    100% { opacity: 0; transform: translateY(10px); }
   }
-  :global(.word-preview-container td),
-  :global(.word-preview-container th) {
-    border: 1px solid #ddd;
-    padding: 8px;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
+  @keyframes float-3 {
+    0%   { opacity: 0; transform: translateY(8px) rotate(-2deg); }
+    15%  { opacity: 1; }
+    85%  { opacity: 1; }
+    100% { opacity: 0; transform: translateY(-8px) rotate(2deg); }
   }
+  .animate-float-1 { animation: float-1 7s ease-in-out 0.5s infinite; }
+  .animate-float-2 { animation: float-2 8s ease-in-out 1.5s infinite; }
+  .animate-float-3 { animation: float-3 9s ease-in-out 0.9s infinite; }
 </style>
