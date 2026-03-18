@@ -52,7 +52,8 @@
   <meta name="description" content="Privacy-first PDF workstation. Merge PDFs, Word docs, PowerPoints, Excel sheets and images into one perfect PDF." />
 </svelte:head>
 
-<div class="min-h-screen overflow-x-hidden transition-colors duration-300 font-sans"
+<!-- ✅ custom-scrollbar added here -->
+<div class="min-h-screen overflow-x-hidden transition-colors duration-300 font-sans custom-scrollbar"
      style="background-color: {isDark ? '#0c0a09' : '#fafaf9'}; color: {isDark ? '#e7e5e4' : '#1c1917'};">
 
   <!-- NAV -->
@@ -100,10 +101,10 @@
          style="opacity: {isDark ? 0.04 : 0.06}; background-image: linear-gradient({isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.5)'} 1px, transparent 1px), linear-gradient(90deg, {isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.5)'} 1px, transparent 1px); background-size: 60px 60px;"></div>
 
     <!-- Amber glow -->
-    <div class="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] rounded-full pointer-events-none"
+    <div class="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-175 h-125 rounded-full pointer-events-none"
          style="opacity: {isDark ? 0.12 : 0.06}; filter: blur(120px); background: radial-gradient(ellipse, #d97706, transparent 70%);"></div>
 
-    <!-- Floating chips — now dark mode aware -->
+    <!-- Floating chips -->
     {#each chips as chip}
       <div class="absolute {chip.pos} {chip.anim}">
         <div class="px-3 py-1.5 rounded-lg border text-[10px] font-bold backdrop-blur-sm transition-colors duration-300 {chip.textColor}"
@@ -194,7 +195,9 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 rounded-2xl overflow-hidden border"
            style="border-color: {isDark ? 'rgba(68,64,60,0.4)' : 'rgba(214,211,209,0.6)'}; gap: 1px; background-color: {isDark ? 'rgba(68,64,60,0.3)' : 'rgba(214,211,209,0.4)'};">
         {#each features as f}
+          <!-- ✅ role="presentation" added -->
           <div class="p-8 transition-colors duration-300 group cursor-default"
+               role="presentation"
                style="background-color: {isDark ? '#0c0a09' : '#fafaf9'};"
                onmouseenter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = isDark ? '#141210' : '#f5f5f4'; }}
                onmouseleave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = isDark ? '#0c0a09' : '#fafaf9'; }}>
@@ -228,7 +231,9 @@
           { n: '03', title: 'Customize', desc: 'Apply themes, watermarks, and typography to your chapter pages.' },
           { n: '04', title: 'Export', desc: 'Get a merged PDF instantly. Share via QR code — auto-shredded after 5 hours.' },
         ] as step}
+          <!-- ✅ role="presentation" added -->
           <div class="flex items-start gap-8 p-8 rounded-2xl border transition-all duration-300 cursor-default group"
+               role="presentation"
                style="border-color: transparent;"
                onmouseenter={(e) => {
                  const el = e.currentTarget as HTMLElement;
@@ -316,4 +321,9 @@
   .animate-float-1 { animation: float-1 7s ease-in-out 0.5s infinite; }
   .animate-float-2 { animation: float-2 8s ease-in-out 1.5s infinite; }
   .animate-float-3 { animation: float-3 9s ease-in-out 0.9s infinite; }
+
+  /* Custom scrollbar */
+  :global(html)::-webkit-scrollbar { width: 4px; }
+  :global(html)::-webkit-scrollbar-track { background: transparent; }
+  :global(html)::-webkit-scrollbar-thumb { background: #44403c; border-radius: 10px; }
 </style>
