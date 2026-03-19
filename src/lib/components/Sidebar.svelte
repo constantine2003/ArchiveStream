@@ -3,6 +3,7 @@
   import { slide } from 'svelte/transition';
   import { quintOut } from 'svelte/easing';
   import { store } from '$lib/stores/archiveState.svelte';
+  import { getCssFontFamily, getCssFontStyle, getCssFontWeight } from '$lib/utils/themeUtils';
   import { updateThemeColor, applyPreset } from '$lib/utils/themeUtils';
   import type { WatermarkType } from '$lib/types';
 
@@ -253,7 +254,7 @@
         <div class="space-y-3 max-w-full overflow-hidden">
           <p class="text-[9px] font-bold text-stone-400 uppercase tracking-tighter mb-1 italic border-t pt-3
                     {store.isDark ? 'border-stone-800' : 'border-stone-100'}">
-            Design Atelier <span class="opacity-70 ml-1">(Chapter file only)</span>
+            Design Atelier <span class="opacity-70 ml-1">(Docx & Chapters)</span>
           </p>
 
           <div class="px-1">
@@ -285,12 +286,12 @@
             </select>
           </div>
 
-          <!-- <div class="px-1 py-1">
+          <div class="px-1 py-1">
             <p class="text-[7px] font-medium text-amber-600/80 uppercase tracking-widest flex items-center gap-1">
               <span class="w-1 h-1 rounded-full bg-amber-500 animate-pulse"></span>
               Note: Color & Paper adjustments only apply to Chapter Pages
             </p>
-          </div> -->
+          </div>
 
           <div class="grid grid-cols-2 gap-2 px-1">
             <div>
@@ -335,8 +336,8 @@
             {/each}
           </div>
 
-          <!-- Preview
-          <div class="mt-2 p-3 rounded-xl border shadow-inner {store.isDark ? 'bg-stone-900/50 border-stone-800' : 'bg-white border-stone-200'}">
+          <!-- Preview -->
+          <!-- <div class="mt-2 p-3 rounded-xl border shadow-inner {store.isDark ? 'bg-stone-900/50 border-stone-800' : 'bg-white border-stone-200'}">
             <p class="text-[8px] font-bold text-stone-400 uppercase tracking-widest mb-2">Preview</p>
             <div
               class="aspect-3/4 w-24 sm:w-32 mx-auto shadow-md rounded-sm border border-stone-100 transition-all duration-300 flex flex-col p-2 sm:p-3 overflow-hidden"
@@ -344,7 +345,7 @@
             >
               <div class="w-1/3 h-0.5 mb-3 opacity-40 rounded-full" style="background-color: {store.globalTheme.primaryColor.hex};"></div>
               <h1 class="leading-tight mb-1 truncate"
-                style="color: {store.globalTheme.primaryColor.hex}; font-family: {store.globalTheme.fontFamily}; font-size: {store.globalTheme.chapterFontSize / 10}px;">
+                style="color: {store.globalTheme.primaryColor.hex}; font-family: {getCssFontFamily(store.globalTheme.fontFamily)}; font-weight: {getCssFontWeight(store.globalTheme.fontFamily)}; font-style: {getCssFontStyle(store.globalTheme.fontFamily)}; font-size: {store.globalTheme.chapterFontSize / 10}px;">
                 The Archive
               </h1>
               <div class="w-full h-[0.5px] mb-2 opacity-20" style="background-color: {store.globalTheme.primaryColor.hex};"></div>
@@ -360,6 +361,23 @@
               </span>
             </div>
           </div> -->
+
+          <!-- Page Numbering -->
+          <div class="px-1 pt-3 border-t {store.isDark ? 'border-stone-800' : 'border-stone-100'}">
+            <div class="flex items-center justify-between">
+              <span class="text-[8px] font-bold text-stone-400 uppercase tracking-tight">Page Numbering</span>
+              <button
+                aria-label="Toggle page numbering"
+                onclick={() => { store.globalTheme.pageNumbering = !store.globalTheme.pageNumbering; }}
+                class="w-8 h-4 rounded-full relative transition-colors {store.globalTheme.pageNumbering ? 'bg-amber-600' : (store.isDark ? 'bg-stone-700' : 'bg-stone-300')}">
+                <div class="absolute top-0.5 transition-all w-3 h-3 bg-white rounded-full {store.globalTheme.pageNumbering ? 'right-0.5' : 'left-0.5'}"></div>
+              </button>
+            </div>
+            {#if store.globalTheme.pageNumbering}
+              <p class="text-[7px] text-stone-500 mt-1">Bottom right — X / Y format</p>
+            {/if}
+          </div>
+
         </div>
       </div>
     {/if}
@@ -375,9 +393,3 @@
     </button>
   </div>
 </aside>
-
-<style>
-    .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-    .custom-scrollbar::-webkit-scrollbar-thumb { background: #44403c; border-radius: 10px; }
-</style>

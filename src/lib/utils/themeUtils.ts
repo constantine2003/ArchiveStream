@@ -47,6 +47,7 @@ export const defaultTheme: GlobalTheme = {
   chapterFontSize: 32,
   bodyFontSize: 11,
   lineHeight: 16,
+  pageNumbering: false,
 };
 
 export function updateThemeColor(

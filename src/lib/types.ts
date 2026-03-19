@@ -6,7 +6,14 @@ export type FileItem = {
   pageSelection?: string;
   selectionType: 'all' | 'custom';
   pageCount?: number;
-  type?: 'pdf' | 'word' | 'ppt' | 'excel' | 'image' | 'chapter';
+  type?: 'pdf' | 'word' | 'ppt' | 'excel' | 'image' | 'chapter' | 'cover';
+  // Cover page fields
+  coverTitle?: string;
+  coverSubtitle?: string;
+  coverAuthor?: string;
+  coverDate?: string;
+  coverLogoUrl?: string;
+  coverLogoFile?: File;
   previewHtml?: string;
   rawFile?: File;
   title?: string;
@@ -37,4 +44,5 @@ export type GlobalTheme = {
   lineHeight: number;
   customFileName?: string;
   qrUrl?: string;
+  pageNumbering?: boolean;
 };

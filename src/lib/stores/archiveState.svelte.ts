@@ -20,6 +20,7 @@ class ArchiveState {
   showSuccess = $state(false);
   showPasswordModal = $state(false);
   exportPassword = $state('');
+  showCoverEditor = $state(false);
   isDark = $state(false);
   sidebarOpen = $state(false);
   compressEnabled = $state(true);

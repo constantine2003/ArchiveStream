@@ -10,6 +10,7 @@
   import ExportOverlay from '$lib/components/ExportOverlay.svelte';
   import QRModal from '$lib/components/QRModal.svelte';
   import PasswordModal from '$lib/components/PasswordModal.svelte';
+  import CoverEditor from '$lib/components/CoverEditor.svelte';
 
   import { store, watermarkStyles } from '$lib/stores/archiveState.svelte';
   import { shrinkImage, parsePageRanges, optimizeMetadataAndImages } from '$lib/utils/pdfUtils';
@@ -248,8 +249,53 @@
             ? parsePageRanges(file.pageSelection, totalPages)
             : Array.from({ length: totalPages }, (_, idx) => idx + 1);
 
+        // ── COVER PAGE ──
+        if (file.type === 'cover') {
+          const page = mergedPdf.addPage([600, 800]);
+          const { width, height } = page.getSize();
+          page.drawRectangle({ x: 0, y: 0, width, height, color: themeAccent });
+
+          let logoY = height - 160;
+          if (file.coverLogoFile) {
+            try {
+              const logoBytes = await file.coverLogoFile.arrayBuffer();
+              const isLogoPng = file.coverLogoFile.type === 'image/png';
+              const logoImg = isLogoPng ? await mergedPdf.embedPng(logoBytes) : await mergedPdf.embedJpg(logoBytes);
+              const logoSize = 80;
+              page.drawImage(logoImg, { x: (width - logoSize) / 2, y: height - 160, width: logoSize, height: logoSize });
+              logoY = height - 200;
+            } catch {}
+          }
+
+          page.drawLine({ start: { x: width / 2 - 30, y: logoY - 20 }, end: { x: width / 2 + 30, y: logoY - 20 }, thickness: 1, color: themePrimary, opacity: 0.2 });
+
+          if (file.coverTitle) {
+            let titleSize = 36;
+            const maxW = width - 120;
+            if (file.coverTitle.length > 20) titleSize = 28;
+            if (file.coverTitle.length > 35) titleSize = 22;
+            const titleWidth = fontBold.widthOfTextAtSize(file.coverTitle, titleSize);
+            page.drawText(file.coverTitle, { x: (width - Math.min(titleWidth, maxW)) / 2, y: logoY - 80, size: titleSize, font: fontBold, color: themePrimary, maxWidth: maxW, lineHeight: titleSize * 1.2 });
+          }
+
+          if (file.coverSubtitle) {
+            const subWidth = fontRegular.widthOfTextAtSize(file.coverSubtitle, 16);
+            page.drawText(file.coverSubtitle, { x: (width - Math.min(subWidth, width - 120)) / 2, y: logoY - 140, size: 16, font: fontRegular, color: themePrimary, opacity: 0.65, maxWidth: width - 120, lineHeight: 22 });
+          }
+
+          page.drawLine({ start: { x: 60, y: 140 }, end: { x: width - 60, y: 140 }, thickness: 0.5, color: themePrimary, opacity: 0.15 });
+
+          if (file.coverAuthor) {
+            page.drawText(file.coverAuthor, { x: 60, y: 110, size: 13, font: fontRegular, color: themePrimary, opacity: 0.6 });
+          }
+          if (file.coverDate) {
+            const dateWidth = fontRegular.widthOfTextAtSize(file.coverDate, 11);
+            page.drawText(file.coverDate, { x: width - 60 - dateWidth, y: 110, size: 11, font: fontRegular, color: themePrimary, opacity: 0.4 });
+          }
+        }
+
         // ── CHAPTER ──
-        if (file.type === 'chapter') {
+        else if (file.type === 'chapter') {
           const page = mergedPdf.addPage([600, 800]);
           const { width, height } = page.getSize();
           const margin = 60;
@@ -419,6 +465,25 @@
         });
       }
 
+      // ── PAGE NUMBERING ──
+      if (store.globalTheme.pageNumbering) {
+        const pages = mergedPdf.getPages();
+        const total = pages.length;
+        pages.forEach((page, idx) => {
+          const { width } = page.getSize();
+          const label = `${idx + 1} / ${total}`;
+          const labelWidth = fontRegular.widthOfTextAtSize(label, 9);
+          page.drawText(label, {
+            x: width - 40 - labelWidth,
+            y: 20,
+            size: 9,
+            font: fontRegular,
+            color: themePrimary,
+            opacity: 0.4,
+          });
+        });
+      }
+
       // ── METADATA ──
       await optimizeMetadataAndImages(mergedPdf, !!store.compressEnabled);
 
@@ -518,6 +583,15 @@
 <QRModal onShred={() => handleSessionExpiry()} />
 
 <PasswordModal onConfirm={runExport} />
+<CoverEditor onConfirm={(cover) => {
+  // Insert cover at position 0, or replace existing cover
+  const existing = store.files.findIndex(f => f.type === 'cover');
+  if (existing >= 0) {
+    store.files = store.files.map((f, i) => i === existing ? cover : f);
+  } else {
+    store.files = [cover, ...store.files];
+  }
+}} />
 
 <!-- Layout -->
 <div
@@ -593,6 +667,7 @@
         <Canvas
           onOpenContextMenu={openContextMenu}
           onAddChapter={addChapter}
+          onAddCover={() => { store.showCoverEditor = true; }}
           onExport={handleExport}
           onOpenQR={openQRModal}
         />
