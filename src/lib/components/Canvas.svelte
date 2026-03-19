@@ -79,7 +79,7 @@
             </button>
           </div>
           <!-- Cover preview -->
-          <div class="shadow-2xl mx-auto w-[92%] aspect-[3/4] max-h-[70vh] rounded-xl flex flex-col items-center justify-center p-12 border transition-colors duration-300"
+          <div class="shadow-2xl mx-auto w-[92%] aspect-3/4 max-h-[70vh] rounded-xl flex flex-col items-center justify-center p-12 border transition-colors duration-300"
                style="background-color: {store.globalTheme.accentColor.hex}; border-color: {store.globalTheme.primaryColor.hex}33;">
             {#if file.coverLogoUrl}
               <img src={file.coverLogoUrl} alt="Logo" class="w-24 h-24 object-contain mb-6 rounded-xl" />
@@ -265,6 +265,13 @@
           <div class="flex items-center gap-4 mb-4 px-2 md:px-0">
             <span class="text-[10px] font-bold uppercase tracking-[0.2em] {store.isDark ? 'text-stone-500' : 'text-stone-400'}">{file.name}</span>
             <div class="h-px flex-1 {store.isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
+            {#if file.type === 'pdf' && (file.pageCount ?? 0) > 1}
+              <button onclick={() => { store.pageReorderFile = String(file.id); }}
+                class="text-[9px] font-bold uppercase tracking-widest transition-colors shrink-0
+                       {file.pageReorderMap ? 'text-amber-500' : (store.isDark ? 'text-stone-600 hover:text-amber-500' : 'text-stone-400 hover:text-amber-600')}">
+                {file.pageReorderMap ? '✓ Reordered' : 'Reorder Pages'}
+              </button>
+            {/if}
           </div>
           {#if file.type === 'image'}
             <div class="rounded-xl shadow-2xl overflow-hidden border flex items-center justify-center p-4

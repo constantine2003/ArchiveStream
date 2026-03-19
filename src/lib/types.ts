@@ -20,6 +20,7 @@ export type FileItem = {
   description?: string;
   // Image-specific size controls
   imageSizeMode?: 'original' | 'fit' | 'custom';
+  pageReorderMap?: number[]; // custom page order for PDFs
   imageCustomWidth?: number;
   imageCustomHeight?: number;
   [key: string]: any;

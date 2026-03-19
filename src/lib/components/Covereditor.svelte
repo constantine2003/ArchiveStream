@@ -122,8 +122,8 @@
           <!-- Logo upload -->
           <div>
             <label class="block text-[10px] font-bold uppercase tracking-widest mb-2"
-                   style="color: {store.isDark ? '#78716c' : '#a8a29e'};">Logo / Image</label>
-            <input bind:this={logoInput} type="file" accept="image/*" class="hidden" onchange={handleLogo} />
+                   style="color: {store.isDark ? '#78716c' : '#a8a29e'};" for="cover-logo">Logo / Image</label>
+            <input id="cover-logo" bind:this={logoInput} type="file" accept="image/*" class="hidden" onchange={handleLogo} />
             <button onclick={() => logoInput?.click()}
               class="w-full py-3 rounded-xl border-2 border-dashed text-xs font-bold uppercase tracking-widest transition-all"
               style="border-color: {store.isDark ? '#292524' : '#e7e5e4'}; color: {store.isDark ? '#57534e' : '#a8a29e'}; background: transparent;">
@@ -134,8 +134,8 @@
           <!-- Title -->
           <div>
             <label class="block text-[10px] font-bold uppercase tracking-widest mb-2"
-                   style="color: {store.isDark ? '#78716c' : '#a8a29e'};">Title</label>
-            <input type="text" placeholder="Document title..." bind:value={title}
+                   style="color: {store.isDark ? '#78716c' : '#a8a29e'};" for="cover-title">Title</label>
+            <input id="cover-title" type="text" placeholder="Document title..." bind:value={title}
               class="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
               style="background-color: {store.isDark ? '#1c1917' : '#f5f5f4'}; border-color: {store.isDark ? '#292524' : '#e7e5e4'}; color: {store.isDark ? '#e7e5e4' : '#1c1917'};" />
           </div>
@@ -143,8 +143,8 @@
           <!-- Subtitle -->
           <div>
             <label class="block text-[10px] font-bold uppercase tracking-widest mb-2"
-                   style="color: {store.isDark ? '#78716c' : '#a8a29e'};">Subtitle</label>
-            <input type="text" placeholder="Optional subtitle..." bind:value={subtitle}
+                   style="color: {store.isDark ? '#78716c' : '#a8a29e'};" for="cover-subtitle">Subtitle</label>
+            <input id="cover-subtitle" type="text" placeholder="Optional subtitle..." bind:value={subtitle}
               class="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
               style="background-color: {store.isDark ? '#1c1917' : '#f5f5f4'}; border-color: {store.isDark ? '#292524' : '#e7e5e4'}; color: {store.isDark ? '#e7e5e4' : '#1c1917'};" />
           </div>
@@ -152,8 +152,8 @@
           <!-- Author -->
           <div>
             <label class="block text-[10px] font-bold uppercase tracking-widest mb-2"
-                   style="color: {store.isDark ? '#78716c' : '#a8a29e'};">Author</label>
-            <input type="text" placeholder="Your name..." bind:value={author}
+                   style="color: {store.isDark ? '#78716c' : '#a8a29e'};" for="cover-author">Author</label>
+            <input id="cover-author" type="text" placeholder="Your name..." bind:value={author}
               class="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
               style="background-color: {store.isDark ? '#1c1917' : '#f5f5f4'}; border-color: {store.isDark ? '#292524' : '#e7e5e4'}; color: {store.isDark ? '#e7e5e4' : '#1c1917'};" />
           </div>
@@ -161,8 +161,8 @@
           <!-- Date -->
           <div>
             <label class="block text-[10px] font-bold uppercase tracking-widest mb-2"
-                   style="color: {store.isDark ? '#78716c' : '#a8a29e'};">Date</label>
-            <input type="text" placeholder="Date..." bind:value={date}
+                   style="color: {store.isDark ? '#78716c' : '#a8a29e'};" for="cover-date">Date</label>
+            <input id="cover-date" type="text" placeholder="Date..." bind:value={date}
               class="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all"
               style="background-color: {store.isDark ? '#1c1917' : '#f5f5f4'}; border-color: {store.isDark ? '#292524' : '#e7e5e4'}; color: {store.isDark ? '#e7e5e4' : '#1c1917'};" />
           </div>

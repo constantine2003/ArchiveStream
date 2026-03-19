@@ -11,6 +11,7 @@
   import QRModal from '$lib/components/QRModal.svelte';
   import PasswordModal from '$lib/components/PasswordModal.svelte';
   import CoverEditor from '$lib/components/CoverEditor.svelte';
+  import PageReorderModal from '$lib/components/PageReorderModal.svelte';
 
   import { store, watermarkStyles } from '$lib/stores/archiveState.svelte';
   import { shrinkImage, parsePageRanges, optimizeMetadataAndImages } from '$lib/utils/pdfUtils';
@@ -434,10 +435,16 @@
           const pdfBytes = await file.rawFile.arrayBuffer();
           const pdf = await PDFDocument.load(pdfBytes);
           const maxPages = pdf.getPageCount();
-          const indices =
-            file.selectionType === 'custom' && file.pageSelection
+
+          // Use custom page order if set, otherwise use selection/all
+          let indices: number[];
+          if (file.pageReorderMap && file.pageReorderMap.length > 0) {
+            indices = file.pageReorderMap.filter(i => i >= 0 && i < maxPages);
+          } else {
+            indices = file.selectionType === 'custom' && file.pageSelection
               ? parsePageRanges(file.pageSelection, maxPages).map((n) => n - 1)
               : Array.from({ length: maxPages }, (_, idx) => idx);
+          }
 
           if (indices.length > 0) {
             const copied = await mergedPdf.copyPages(pdf, indices);
@@ -540,11 +547,39 @@
         await supabase.from('document_queue').insert(queueEntries);
 
         const cloudName = `archive_${session.id}.pdf`;
-        const { error: uError } = await supabase.storage.from('archives').upload(cloudName, finalBytes.buffer.slice(0) as ArrayBuffer);
+
+        // ── E2E ENCRYPTION ──
+        let uploadBytes: ArrayBuffer = finalBytes.buffer.slice(0) as ArrayBuffer;
+        let encryptionKey = '';
+
+        if (store.e2eEncrypt) {
+          // Generate AES-256-GCM key
+          const cryptoKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+
+          // Encrypt
+          const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, uploadBytes);
+
+          // Prepend IV to encrypted bytes
+          const combined = new Uint8Array(iv.length + encrypted.byteLength);
+          combined.set(iv, 0);
+          combined.set(new Uint8Array(encrypted), iv.length);
+          uploadBytes = combined.buffer;
+
+          // Export key as base64 for URL fragment
+          const rawKey = await crypto.subtle.exportKey('raw', cryptoKey);
+          encryptionKey = btoa(String.fromCharCode(...new Uint8Array(rawKey)));
+        }
+
+        const { error: uError } = await supabase.storage.from('archives').upload(cloudName, uploadBytes);
         if (uError) throw uError;
 
         const { data: { publicUrl } } = supabase.storage.from('archives').getPublicUrl(cloudName);
-        store.globalTheme.qrUrl = publicUrl;
+
+        // Embed key in URL fragment — never sent to server
+        store.globalTheme.qrUrl = encryptionKey
+          ? `${window.location.origin}/decrypt#url=${encodeURIComponent(publicUrl)}&key=${encodeURIComponent(encryptionKey)}`
+          : publicUrl;
 
         store.exportHistory = [
           { name: fileName, date: new Date().toLocaleTimeString(), url: exportUrl, cloudUrl: publicUrl },
@@ -583,6 +618,12 @@
 <QRModal onShred={() => handleSessionExpiry()} />
 
 <PasswordModal onConfirm={runExport} />
+<PageReorderModal onConfirm={(fileId, newOrder) => {
+  store.files = store.files.map(f => {
+    if (String(f.id) !== fileId) return f;
+    return { ...f, pageReorderMap: newOrder };
+  });
+}} />
 <CoverEditor onConfirm={(cover) => {
   // Insert cover at position 0, or replace existing cover
   const existing = store.files.findIndex(f => f.type === 'cover');

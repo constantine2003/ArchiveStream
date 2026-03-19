@@ -21,6 +21,9 @@ class ArchiveState {
   showPasswordModal = $state(false);
   exportPassword = $state('');
   showCoverEditor = $state(false);
+  e2eEncrypt = $state(false);
+  pageReorderFile = $state<string | null>(null); // file id being reordered
+  pageReorderOrder = $state<number[]>([]); // page indices in new order
   isDark = $state(false);
   sidebarOpen = $state(false);
   compressEnabled = $state(true);

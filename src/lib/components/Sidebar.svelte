@@ -378,6 +378,24 @@
             {/if}
           </div>
 
+          <!-- E2E Encryption -->
+          <div class="px-1 pt-3 border-t {store.isDark ? 'border-stone-800' : 'border-stone-100'}">
+            <div class="flex items-center justify-between">
+              <span class="text-[8px] font-bold text-stone-400 uppercase tracking-tight">E2E Encrypt Upload</span>
+              <button
+                aria-label="Toggle end-to-end encryption"
+                onclick={() => { store.e2eEncrypt = !store.e2eEncrypt; }}
+                class="w-8 h-4 rounded-full relative transition-colors {store.e2eEncrypt ? 'bg-amber-600' : (store.isDark ? 'bg-stone-700' : 'bg-stone-300')}">
+                <div class="absolute top-0.5 transition-all w-3 h-3 bg-white rounded-full {store.e2eEncrypt ? 'right-0.5' : 'left-0.5'}"></div>
+              </button>
+            </div>
+            {#if store.e2eEncrypt}
+              <p class="text-[7px] text-amber-500/70 mt-1">Key in QR link only — Supabase can't read your file</p>
+            {:else}
+              <p class="text-[7px] text-stone-500 mt-1">Encrypt before cloud upload</p>
+            {/if}
+          </div>
+
         </div>
       </div>
     {/if}
