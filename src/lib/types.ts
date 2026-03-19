@@ -6,13 +6,21 @@ export type FileItem = {
   pageSelection?: string;
   selectionType: 'all' | 'custom';
   pageCount?: number;
-  type?: 'pdf' | 'word' | 'ppt' | 'excel' | 'image' | 'chapter';
+  type?: 'pdf' | 'word' | 'ppt' | 'excel' | 'image' | 'chapter' | 'cover';
+  // Cover page fields
+  coverTitle?: string;
+  coverSubtitle?: string;
+  coverAuthor?: string;
+  coverDate?: string;
+  coverLogoUrl?: string;
+  coverLogoFile?: File;
   previewHtml?: string;
   rawFile?: File;
   title?: string;
   description?: string;
   // Image-specific size controls
   imageSizeMode?: 'original' | 'fit' | 'custom';
+  pageReorderMap?: number[]; // custom page order for PDFs
   imageCustomWidth?: number;
   imageCustomHeight?: number;
   [key: string]: any;
@@ -37,4 +45,5 @@ export type GlobalTheme = {
   lineHeight: number;
   customFileName?: string;
   qrUrl?: string;
+  pageNumbering?: boolean;
 };

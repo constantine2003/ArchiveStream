@@ -9,6 +9,9 @@
   import ContextMenu from '$lib/components/ContextMenu.svelte';
   import ExportOverlay from '$lib/components/ExportOverlay.svelte';
   import QRModal from '$lib/components/QRModal.svelte';
+  import PasswordModal from '$lib/components/PasswordModal.svelte';
+  import CoverEditor from '$lib/components/CoverEditor.svelte';
+  import PageReorderModal from '$lib/components/PageReorderModal.svelte';
 
   import { store, watermarkStyles } from '$lib/stores/archiveState.svelte';
   import { shrinkImage, parsePageRanges, optimizeMetadataAndImages } from '$lib/utils/pdfUtils';
@@ -17,6 +20,8 @@
   // ─── File Input ────────────────────────────────────────────────────────────
   let fileInput = $state<HTMLInputElement | undefined>(undefined);
 
+  // ─── Password Protection ───────────────────────────────────────────────────
+  let showPassword = $state(false);
   // ─── Mount ─────────────────────────────────────────────────────────────────
   onMount(() => {
     // Lock scroll for app, restore on unmount
@@ -183,7 +188,13 @@
   }
 
   // ─── Export ─────────────────────────────────────────────────────────────────
-  async function handleExport() {
+  function handleExport() {
+    if (store.files.length === 0 || store.isExporting) return;
+    store.exportPassword = '';
+    store.showPasswordModal = true;
+  }
+
+  async function runExport() {
     if (store.files.length === 0 || store.isExporting) return;
 
     try {
@@ -239,8 +250,53 @@
             ? parsePageRanges(file.pageSelection, totalPages)
             : Array.from({ length: totalPages }, (_, idx) => idx + 1);
 
+        // ── COVER PAGE ──
+        if (file.type === 'cover') {
+          const page = mergedPdf.addPage([600, 800]);
+          const { width, height } = page.getSize();
+          page.drawRectangle({ x: 0, y: 0, width, height, color: themeAccent });
+
+          let logoY = height - 160;
+          if (file.coverLogoFile) {
+            try {
+              const logoBytes = await file.coverLogoFile.arrayBuffer();
+              const isLogoPng = file.coverLogoFile.type === 'image/png';
+              const logoImg = isLogoPng ? await mergedPdf.embedPng(logoBytes) : await mergedPdf.embedJpg(logoBytes);
+              const logoSize = 80;
+              page.drawImage(logoImg, { x: (width - logoSize) / 2, y: height - 160, width: logoSize, height: logoSize });
+              logoY = height - 200;
+            } catch {}
+          }
+
+          page.drawLine({ start: { x: width / 2 - 30, y: logoY - 20 }, end: { x: width / 2 + 30, y: logoY - 20 }, thickness: 1, color: themePrimary, opacity: 0.2 });
+
+          if (file.coverTitle) {
+            let titleSize = 36;
+            const maxW = width - 120;
+            if (file.coverTitle.length > 20) titleSize = 28;
+            if (file.coverTitle.length > 35) titleSize = 22;
+            const titleWidth = fontBold.widthOfTextAtSize(file.coverTitle, titleSize);
+            page.drawText(file.coverTitle, { x: (width - Math.min(titleWidth, maxW)) / 2, y: logoY - 80, size: titleSize, font: fontBold, color: themePrimary, maxWidth: maxW, lineHeight: titleSize * 1.2 });
+          }
+
+          if (file.coverSubtitle) {
+            const subWidth = fontRegular.widthOfTextAtSize(file.coverSubtitle, 16);
+            page.drawText(file.coverSubtitle, { x: (width - Math.min(subWidth, width - 120)) / 2, y: logoY - 140, size: 16, font: fontRegular, color: themePrimary, opacity: 0.65, maxWidth: width - 120, lineHeight: 22 });
+          }
+
+          page.drawLine({ start: { x: 60, y: 140 }, end: { x: width - 60, y: 140 }, thickness: 0.5, color: themePrimary, opacity: 0.15 });
+
+          if (file.coverAuthor) {
+            page.drawText(file.coverAuthor, { x: 60, y: 110, size: 13, font: fontRegular, color: themePrimary, opacity: 0.6 });
+          }
+          if (file.coverDate) {
+            const dateWidth = fontRegular.widthOfTextAtSize(file.coverDate, 11);
+            page.drawText(file.coverDate, { x: width - 60 - dateWidth, y: 110, size: 11, font: fontRegular, color: themePrimary, opacity: 0.4 });
+          }
+        }
+
         // ── CHAPTER ──
-        if (file.type === 'chapter') {
+        else if (file.type === 'chapter') {
           const page = mergedPdf.addPage([600, 800]);
           const { width, height } = page.getSize();
           const margin = 60;
@@ -379,10 +435,16 @@
           const pdfBytes = await file.rawFile.arrayBuffer();
           const pdf = await PDFDocument.load(pdfBytes);
           const maxPages = pdf.getPageCount();
-          const indices =
-            file.selectionType === 'custom' && file.pageSelection
+
+          // Use custom page order if set, otherwise use selection/all
+          let indices: number[];
+          if (file.pageReorderMap && file.pageReorderMap.length > 0) {
+            indices = file.pageReorderMap.filter(i => i >= 0 && i < maxPages);
+          } else {
+            indices = file.selectionType === 'custom' && file.pageSelection
               ? parsePageRanges(file.pageSelection, maxPages).map((n) => n - 1)
               : Array.from({ length: maxPages }, (_, idx) => idx);
+          }
 
           if (indices.length > 0) {
             const copied = await mergedPdf.copyPages(pdf, indices);
@@ -410,12 +472,55 @@
         });
       }
 
+      // ── PAGE NUMBERING ──
+      if (store.globalTheme.pageNumbering) {
+        const pages = mergedPdf.getPages();
+        const total = pages.length;
+        pages.forEach((page, idx) => {
+          const { width } = page.getSize();
+          const label = `${idx + 1} / ${total}`;
+          const labelWidth = fontRegular.widthOfTextAtSize(label, 9);
+          page.drawText(label, {
+            x: width - 40 - labelWidth,
+            y: 20,
+            size: 9,
+            font: fontRegular,
+            color: themePrimary,
+            opacity: 0.4,
+          });
+        });
+      }
+
       // ── METADATA ──
       await optimizeMetadataAndImages(mergedPdf, !!store.compressEnabled);
 
       // ── LOCAL DOWNLOAD ──
       const mergedBytes = await mergedPdf.save({ useObjectStreams: !!store.compressEnabled });
-      const blob = new Blob([mergedBytes.buffer.slice(0) as ArrayBuffer], { type: 'application/pdf' });
+
+      // ── PASSWORD ENCRYPT via edge function ──
+      let finalBytes: Uint8Array = mergedBytes;
+      if (store.exportPassword.trim()) {
+        try {
+          const pwForm = new FormData();
+          pwForm.append('file', new Blob([mergedBytes.buffer.slice(0) as ArrayBuffer], { type: 'application/pdf' }), 'doc.pdf');
+          pwForm.append('password', store.exportPassword.trim());
+          const anonKey = import.meta.env.PUBLIC_SUPABASE_ANON_KEY as string;
+          const pwRes = await supabase.functions.invoke('encrypt-pdf', {
+            body: pwForm,
+            headers: { Authorization: `Bearer ${anonKey}` },
+          });
+          if (!pwRes.error && pwRes.data) {
+            const buf: ArrayBuffer = pwRes.data instanceof ArrayBuffer
+              ? pwRes.data
+              : await (pwRes.data as Blob).arrayBuffer();
+            finalBytes = new Uint8Array(buf);
+          }
+        } catch (encErr) {
+          console.warn('Encryption failed, exporting without password:', encErr);
+        }
+      }
+
+      const blob = new Blob([finalBytes.buffer.slice(0) as ArrayBuffer], { type: 'application/pdf' });
       const exportUrl = URL.createObjectURL(blob);
       const fileName = `ArchiveStream_${Date.now()}.pdf`;
 
@@ -442,11 +547,39 @@
         await supabase.from('document_queue').insert(queueEntries);
 
         const cloudName = `archive_${session.id}.pdf`;
-        const { error: uError } = await supabase.storage.from('archives').upload(cloudName, mergedBytes);
+
+        // ── E2E ENCRYPTION ──
+        let uploadBytes: ArrayBuffer = finalBytes.buffer.slice(0) as ArrayBuffer;
+        let encryptionKey = '';
+
+        if (store.e2eEncrypt) {
+          // Generate AES-256-GCM key
+          const cryptoKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+
+          // Encrypt
+          const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, uploadBytes);
+
+          // Prepend IV to encrypted bytes
+          const combined = new Uint8Array(iv.length + encrypted.byteLength);
+          combined.set(iv, 0);
+          combined.set(new Uint8Array(encrypted), iv.length);
+          uploadBytes = combined.buffer;
+
+          // Export key as base64 for URL fragment
+          const rawKey = await crypto.subtle.exportKey('raw', cryptoKey);
+          encryptionKey = btoa(String.fromCharCode(...new Uint8Array(rawKey)));
+        }
+
+        const { error: uError } = await supabase.storage.from('archives').upload(cloudName, uploadBytes);
         if (uError) throw uError;
 
         const { data: { publicUrl } } = supabase.storage.from('archives').getPublicUrl(cloudName);
-        store.globalTheme.qrUrl = publicUrl;
+
+        // Embed key in URL fragment — never sent to server
+        store.globalTheme.qrUrl = encryptionKey
+          ? `${window.location.origin}/decrypt#url=${encodeURIComponent(publicUrl)}&key=${encodeURIComponent(encryptionKey)}`
+          : publicUrl;
 
         store.exportHistory = [
           { name: fileName, date: new Date().toLocaleTimeString(), url: exportUrl, cloudUrl: publicUrl },
@@ -483,6 +616,23 @@
 <ExportOverlay />
 <ContextMenu />
 <QRModal onShred={() => handleSessionExpiry()} />
+
+<PasswordModal onConfirm={runExport} />
+<PageReorderModal onConfirm={(fileId, newOrder) => {
+  store.files = store.files.map(f => {
+    if (String(f.id) !== fileId) return f;
+    return { ...f, pageReorderMap: newOrder };
+  });
+}} />
+<CoverEditor onConfirm={(cover) => {
+  // Insert cover at position 0, or replace existing cover
+  const existing = store.files.findIndex(f => f.type === 'cover');
+  if (existing >= 0) {
+    store.files = store.files.map((f, i) => i === existing ? cover : f);
+  } else {
+    store.files = [cover, ...store.files];
+  }
+}} />
 
 <!-- Layout -->
 <div
@@ -558,6 +708,7 @@
         <Canvas
           onOpenContextMenu={openContextMenu}
           onAddChapter={addChapter}
+          onAddCover={() => { store.showCoverEditor = true; }}
           onExport={handleExport}
           onOpenQR={openQRModal}
         />

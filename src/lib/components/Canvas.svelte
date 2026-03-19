@@ -6,10 +6,11 @@
   type Props = {
     onOpenContextMenu: (e: MouseEvent, index: number) => void;
     onAddChapter: () => void;
+    onAddCover: () => void;
     onExport: () => void;
     onOpenQR: () => void;
   };
-  let { onOpenContextMenu, onAddChapter, onExport, onOpenQR }: Props = $props();
+  let { onOpenContextMenu, onAddChapter, onAddCover, onExport, onOpenQR }: Props = $props();
 
   async function handleDrop(targetIndex: number) {
     if (store.draggedIndex === null || store.draggedIndex === targetIndex) {
@@ -64,6 +65,45 @@
                 Remove Chapter
               </button>
             </div>
+          </div>
+        </section>
+
+      {:else if file.type === 'cover'}
+        <section id={file.id ? String(file.id) : ''} class="group transition-all duration-300 max-w-4xl mx-auto">
+          <div class="flex items-center gap-4 mb-4 px-2 md:px-0">
+            <span class="text-[10px] font-bold uppercase tracking-[0.2em] {store.isDark ? 'text-stone-500' : 'text-stone-400'}">Cover Page</span>
+            <div class="h-px flex-1 {store.isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
+            <button onclick={() => removeFile(typeof file.id === 'number' ? file.id : undefined, i)}
+              class="text-[9px] font-bold uppercase tracking-widest text-red-500/50 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all">
+              Remove
+            </button>
+          </div>
+          <!-- Cover preview -->
+          <div class="shadow-2xl mx-auto w-[92%] aspect-3/4 max-h-[70vh] rounded-xl flex flex-col items-center justify-center p-12 border transition-colors duration-300"
+               style="background-color: {store.globalTheme.accentColor.hex}; border-color: {store.globalTheme.primaryColor.hex}33;">
+            {#if file.coverLogoUrl}
+              <img src={file.coverLogoUrl} alt="Logo" class="w-24 h-24 object-contain mb-6 rounded-xl" />
+            {/if}
+            <div class="w-12 h-px mb-6 opacity-30" style="background-color: {store.globalTheme.primaryColor.hex};"></div>
+            {#if file.coverTitle}
+              <h1 class="text-3xl md:text-4xl font-bold text-center leading-tight mb-3"
+                  style="color: {store.globalTheme.primaryColor.hex}; font-family: {store.globalTheme.fontFamily}, serif;">
+                {file.coverTitle}
+              </h1>
+            {/if}
+            {#if file.coverSubtitle}
+              <p class="text-base text-center opacity-70 mb-6"
+                 style="color: {store.globalTheme.primaryColor.hex}; font-family: {store.globalTheme.fontFamily}, serif;">
+                {file.coverSubtitle}
+              </p>
+            {/if}
+            <div class="w-full h-px opacity-10 my-4" style="background-color: {store.globalTheme.primaryColor.hex};"></div>
+            {#if file.coverAuthor}
+              <p class="text-sm opacity-60 text-center" style="color: {store.globalTheme.primaryColor.hex};">{file.coverAuthor}</p>
+            {/if}
+            {#if file.coverDate}
+              <p class="text-xs opacity-40 text-center mt-1" style="color: {store.globalTheme.primaryColor.hex};">{file.coverDate}</p>
+            {/if}
           </div>
         </section>
 
@@ -225,6 +265,13 @@
           <div class="flex items-center gap-4 mb-4 px-2 md:px-0">
             <span class="text-[10px] font-bold uppercase tracking-[0.2em] {store.isDark ? 'text-stone-500' : 'text-stone-400'}">{file.name}</span>
             <div class="h-px flex-1 {store.isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
+            {#if file.type === 'pdf' && (file.pageCount ?? 0) > 1}
+              <button onclick={() => { store.pageReorderFile = String(file.id); }}
+                class="text-[9px] font-bold uppercase tracking-widest transition-colors shrink-0
+                       {file.pageReorderMap ? 'text-amber-500' : (store.isDark ? 'text-stone-600 hover:text-amber-500' : 'text-stone-400 hover:text-amber-600')}">
+                {file.pageReorderMap ? '✓ Reordered' : 'Reorder Pages'}
+              </button>
+            {/if}
           </div>
           {#if file.type === 'image'}
             <div class="rounded-xl shadow-2xl overflow-hidden border flex items-center justify-center p-4
@@ -275,8 +322,10 @@
 {/if}
 
 <!-- Floating action bar -->
-<div class="fixed md:absolute bottom-6 md:bottom-10 left-1/2 -translate-x-1/2 z-20 w-full max-w-md px-4 pointer-events-none">
-  <div class="flex flex-col items-center gap-4 pointer-events-auto">
+<div class="fixed md:absolute bottom-6 md:bottom-10 left-1/2 -translate-x-1/2 z-20 w-full px-4 pointer-events-none" style="max-width: 580px;">
+  <div class="flex flex-col items-center gap-3 pointer-events-auto">
+
+    <!-- Top row: compression toggle -->
     <button onclick={() => (store.compressEnabled = !store.compressEnabled)}
       class="flex items-center gap-3 px-4 py-2 rounded-full border transition-all shadow-sm
              {store.isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-200'}">
@@ -287,24 +336,47 @@
         <div class="absolute top-0.5 transition-all w-3 h-3 bg-white rounded-full {store.compressEnabled ? 'right-0.5' : 'left-0.5'}"></div>
       </div>
     </button>
-    <div class="flex justify-center w-full gap-2">
+
+    <!-- Bottom row: all actions -->
+    <div class="flex items-center w-full gap-2">
+
+      <!-- + Chapter -->
       <button onclick={onAddChapter}
-        class="flex-1 py-4 bg-stone-200 hover:bg-amber-100 text-amber-700 rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-xl transition-all border border-stone-300">
-        + Chapter
+        class="flex items-center justify-center gap-1.5 px-4 py-3.5 rounded-2xl font-bold text-[10px] tracking-widest uppercase transition-all shadow-lg border shrink-0
+               {store.isDark ? 'bg-stone-900 border-stone-800 text-stone-400 hover:text-amber-400 hover:border-amber-600/40' : 'bg-white border-stone-200 text-stone-500 hover:text-amber-600 hover:border-amber-400/40'}">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
+        </svg>
+        Chapter
       </button>
+
+      <!-- + Cover -->
+      <button onclick={onAddCover}
+        class="flex items-center justify-center gap-1.5 px-4 py-3.5 rounded-2xl font-bold text-[10px] tracking-widest uppercase transition-all shadow-lg border shrink-0
+               {store.isDark ? 'bg-stone-900 border-stone-800 text-stone-400 hover:text-amber-400 hover:border-amber-600/40' : 'bg-white border-stone-200 text-stone-500 hover:text-amber-600 hover:border-amber-400/40'}">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        Cover
+      </button>
+
+      <!-- Export PDF — primary -->
       <button onclick={onExport} disabled={store.isExporting}
-        class="flex-[2] py-4 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-full font-bold text-[10px] tracking-[0.3em] uppercase shadow-2xl transition-all">
-        {store.isExporting ? 'Compressing...' : 'Export PDF'}
+        class="flex-1 py-3.5 bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 text-white rounded-2xl font-bold text-[10px] tracking-widest uppercase shadow-2xl transition-all">
+        {store.isExporting ? 'Exporting...' : 'Export PDF'}
       </button>
-      <button onclick={onOpenQR} title="View QR Code"
-        class="aspect-square h-[52px] relative flex items-center justify-center bg-stone-950 hover:bg-black text-white rounded-2xl transition-all shadow-xl border border-stone-800 group shrink-0">
+
+      <!-- QR button -->
+      <button onclick={onOpenQR} title="View QR Code" aria-label="View QR Code"
+        class="w-12 h-12 relative flex items-center justify-center rounded-2xl transition-all shadow-xl border group shrink-0
+               {store.isDark ? 'bg-stone-900 border-stone-800 hover:border-amber-600/40 text-stone-400 hover:text-amber-400' : 'bg-white border-stone-200 hover:border-amber-400/40 text-stone-500 hover:text-amber-600'}">
         {#if store.globalTheme.qrUrl}
           <span class="absolute -top-1 -right-1 flex h-3 w-3">
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
             <span class="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
           </span>
         {/if}
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="group-hover:rotate-90 transition-transform duration-300">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="group-hover:rotate-90 transition-transform duration-300">
           <rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/>
           <rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/>
           <path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/>
