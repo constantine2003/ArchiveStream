@@ -9,6 +9,7 @@
   import ContextMenu from '$lib/components/ContextMenu.svelte';
   import ExportOverlay from '$lib/components/ExportOverlay.svelte';
   import QRModal from '$lib/components/QRModal.svelte';
+  import PasswordModal from '$lib/components/PasswordModal.svelte';
 
   import { store, watermarkStyles } from '$lib/stores/archiveState.svelte';
   import { shrinkImage, parsePageRanges, optimizeMetadataAndImages } from '$lib/utils/pdfUtils';
@@ -17,6 +18,8 @@
   // ─── File Input ────────────────────────────────────────────────────────────
   let fileInput = $state<HTMLInputElement | undefined>(undefined);
 
+  // ─── Password Protection ───────────────────────────────────────────────────
+  let showPassword = $state(false);
   // ─── Mount ─────────────────────────────────────────────────────────────────
   onMount(() => {
     // Lock scroll for app, restore on unmount
@@ -183,7 +186,13 @@
   }
 
   // ─── Export ─────────────────────────────────────────────────────────────────
-  async function handleExport() {
+  function handleExport() {
+    if (store.files.length === 0 || store.isExporting) return;
+    store.exportPassword = '';
+    store.showPasswordModal = true;
+  }
+
+  async function runExport() {
     if (store.files.length === 0 || store.isExporting) return;
 
     try {
@@ -415,7 +424,31 @@
 
       // ── LOCAL DOWNLOAD ──
       const mergedBytes = await mergedPdf.save({ useObjectStreams: !!store.compressEnabled });
-      const blob = new Blob([mergedBytes.buffer.slice(0) as ArrayBuffer], { type: 'application/pdf' });
+
+      // ── PASSWORD ENCRYPT via edge function ──
+      let finalBytes: Uint8Array = mergedBytes;
+      if (store.exportPassword.trim()) {
+        try {
+          const pwForm = new FormData();
+          pwForm.append('file', new Blob([mergedBytes.buffer.slice(0) as ArrayBuffer], { type: 'application/pdf' }), 'doc.pdf');
+          pwForm.append('password', store.exportPassword.trim());
+          const anonKey = import.meta.env.PUBLIC_SUPABASE_ANON_KEY as string;
+          const pwRes = await supabase.functions.invoke('encrypt-pdf', {
+            body: pwForm,
+            headers: { Authorization: `Bearer ${anonKey}` },
+          });
+          if (!pwRes.error && pwRes.data) {
+            const buf: ArrayBuffer = pwRes.data instanceof ArrayBuffer
+              ? pwRes.data
+              : await (pwRes.data as Blob).arrayBuffer();
+            finalBytes = new Uint8Array(buf);
+          }
+        } catch (encErr) {
+          console.warn('Encryption failed, exporting without password:', encErr);
+        }
+      }
+
+      const blob = new Blob([finalBytes.buffer.slice(0) as ArrayBuffer], { type: 'application/pdf' });
       const exportUrl = URL.createObjectURL(blob);
       const fileName = `ArchiveStream_${Date.now()}.pdf`;
 
@@ -442,7 +475,7 @@
         await supabase.from('document_queue').insert(queueEntries);
 
         const cloudName = `archive_${session.id}.pdf`;
-        const { error: uError } = await supabase.storage.from('archives').upload(cloudName, mergedBytes);
+        const { error: uError } = await supabase.storage.from('archives').upload(cloudName, finalBytes.buffer.slice(0) as ArrayBuffer);
         if (uError) throw uError;
 
         const { data: { publicUrl } } = supabase.storage.from('archives').getPublicUrl(cloudName);
@@ -483,6 +516,8 @@
 <ExportOverlay />
 <ContextMenu />
 <QRModal onShred={() => handleSessionExpiry()} />
+
+<PasswordModal onConfirm={runExport} />
 
 <!-- Layout -->
 <div

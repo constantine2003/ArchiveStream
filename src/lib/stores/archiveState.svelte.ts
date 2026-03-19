@@ -18,6 +18,8 @@ class ArchiveState {
   isExporting = $state(false);
   exportProgress = $state(0);
   showSuccess = $state(false);
+  showPasswordModal = $state(false);
+  exportPassword = $state('');
   isDark = $state(false);
   sidebarOpen = $state(false);
   compressEnabled = $state(true);

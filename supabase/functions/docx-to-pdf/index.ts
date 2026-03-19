@@ -68,22 +68,28 @@ serve(async (req: Request) => {
     const fileBytes = await file.arrayBuffer();
     const pdfName = file.name.replace(/\.[^.]+$/, '.pdf');
 
-    // ── ConvertAPI ──
+    // ── ConvertAPI (tries first, falls back to CloudConvert on failure) ──
     const convertApiSecret = Deno.env.get('CONVERTAPI_SECRET');
+    const cloudConvertKey = Deno.env.get('CLOUDCONVERT_API_KEY');
+
     if (convertApiSecret) {
-      const pdfBytes = await convertViaConvertAPI(fileBytes, file.name, ext, convertApiSecret);
-      return new Response(pdfBytes, {
-        status: 200,
-        headers: {
-          ...CORS_HEADERS,
-          'Content-Type': 'application/pdf',
-          'Content-Disposition': `attachment; filename="${pdfName}"`,
-        },
-      });
+      try {
+        const pdfBytes = await convertViaConvertAPI(fileBytes, file.name, ext, convertApiSecret);
+        return new Response(pdfBytes, {
+          status: 200,
+          headers: {
+            ...CORS_HEADERS,
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename="${pdfName}"`,
+          },
+        });
+      } catch (err: any) {
+        console.warn('ConvertAPI failed, trying CloudConvert fallback:', err.message);
+        // Falls through to CloudConvert below
+      }
     }
 
-    // ── CloudConvert ──
-    const cloudConvertKey = Deno.env.get('CLOUDCONVERT_API_KEY');
+    // ── CloudConvert (fallback) ──
     if (cloudConvertKey) {
       const pdfBytes = await convertViaCloudConvert(fileBytes, file.name, ext, cloudConvertKey);
       return new Response(pdfBytes, {
@@ -193,4 +199,35 @@ async function convertViaCloudConvert(
   if (!exportTask?.result?.files?.[0]?.url) throw new Error('CloudConvert: no output file URL');
   const pdfRes = await fetch(exportTask.result.files[0].url);
   return pdfRes.arrayBuffer();
+}
+
+// ── PDF Password Protection ───────────────────────────────────────────────────
+// Called with action=protect, sends PDF bytes + password to ConvertAPI
+export async function protectPDF(
+  pdfBytes: ArrayBuffer,
+  password: string,
+  secret: string
+): Promise<ArrayBuffer> {
+  const form = new FormData();
+  form.append('File', new Blob([pdfBytes], { type: 'application/pdf' }), 'document.pdf');
+  form.append('UserPassword', password);
+
+  const res = await fetch(
+    `https://v2.convertapi.com/convert/pdf/to/pdf?Secret=${secret}`,
+    { method: 'POST', body: form }
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`ConvertAPI protect error: ${err}`);
+  }
+
+  const data = await res.json();
+  const base64 = data.Files?.[0]?.FileData;
+  if (!base64) throw new Error('ConvertAPI protect: no file in response');
+
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
 }
