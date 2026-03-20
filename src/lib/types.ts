@@ -6,7 +6,7 @@ export type FileItem = {
   pageSelection?: string;
   selectionType: 'all' | 'custom';
   pageCount?: number;
-  type?: 'pdf' | 'word' | 'ppt' | 'excel' | 'image' | 'chapter' | 'cover';
+  type?: 'pdf' | 'word' | 'ppt' | 'excel' | 'txt' | 'md' | 'image' | 'chapter' | 'cover';
   // Cover page fields
   coverTitle?: string;
   coverSubtitle?: string;

@@ -75,9 +75,14 @@
         f.type.includes('presentationml') ||
         f.type.includes('spreadsheetml') ||
         f.type.startsWith('image/') ||
+        f.type === 'text/plain' ||
+        f.type === 'text/markdown' ||
+        f.type === 'text/html' ||
         f.name.endsWith('.docx') ||
         f.name.endsWith('.pptx') ||
-        f.name.endsWith('.xlsx')
+        f.name.endsWith('.xlsx') ||
+        f.name.endsWith('.txt') ||
+        f.name.endsWith('.md')
     );
 
     const newItems: FileItem[] = [];
@@ -86,6 +91,8 @@
       const isWord = file.name.endsWith('.docx') || file.type.includes('wordprocessingml');
       const isPPT = file.name.endsWith('.pptx') || file.type.includes('presentationml');
       const isExcel = file.name.endsWith('.xlsx') || file.type.includes('spreadsheetml');
+      const isTxt = file.name.endsWith('.txt') || file.type === 'text/plain';
+      const isMd = file.name.endsWith('.md') || file.type === 'text/markdown';
       const isOffice = isWord || isPPT || isExcel;
       const isImage = file.type.startsWith('image/');
       let previewHtml = '';
@@ -96,6 +103,13 @@
           const buf = await file.arrayBuffer();
           const result = await mammoth.convertToHtml({ arrayBuffer: buf });
           previewHtml = result.value;
+        } else if (isTxt) {
+          const text = await file.text();
+          previewHtml = `<pre style="white-space:pre-wrap;word-break:break-word;font-family:monospace;font-size:13px;line-height:1.6;">${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`;
+        } else if (isMd) {
+          const { marked } = await import('marked');
+          const text = await file.text();
+          previewHtml = await marked.parse(text);
         } else if (!isImage && !isPPT && !isExcel) {
           const buf = await file.arrayBuffer();
           const pdf = await PDFDocument.load(buf);
@@ -105,7 +119,7 @@
         newItems.push({
           id: crypto.randomUUID(),
           name: file.name,
-          type: isWord ? 'word' : isPPT ? 'ppt' : isExcel ? 'excel' : isImage ? 'image' : 'pdf',
+          type: isWord ? 'word' : isPPT ? 'ppt' : isExcel ? 'excel' : isTxt ? 'txt' : isMd ? 'md' : isImage ? 'image' : 'pdf',
           url: URL.createObjectURL(file),
           previewHtml,
           rawFile: file,
@@ -332,6 +346,98 @@
               lineHeight: 20,
               opacity: 0.75,
             });
+          }
+        }
+
+        // ── TXT ── fully client-side via pdf-lib
+        else if (file.type === 'txt') {
+          if (file.rawFile) {
+            try {
+              const text = await file.rawFile.text();
+              const page = mergedPdf.addPage([600, 800]);
+              const { width, height } = page.getSize();
+              const margin = 50;
+              const maxWidth = width - margin * 2;
+              const fontSize = 11;
+              const lineHeight = 16;
+
+              page.drawRectangle({ x: 0, y: 0, width, height, color: themeAccent });
+
+              // Split text into lines that fit the page
+              const lines: string[] = [];
+              for (const rawLine of text.split('\n')) {
+                const words = rawLine.split(' ');
+                let current = '';
+                for (const word of words) {
+                  const test = current ? `${current} ${word}` : word;
+                  const w = fontRegular.widthOfTextAtSize(test, fontSize);
+                  if (w > maxWidth && current) {
+                    lines.push(current);
+                    current = word;
+                  } else {
+                    current = test;
+                  }
+                }
+                lines.push(current);
+              }
+
+              // Draw lines across multiple pages
+              let y = height - margin;
+              let currentPage = page;
+              for (const line of lines) {
+                if (y < margin + lineHeight) {
+                  currentPage = mergedPdf.addPage([600, 800]);
+                  currentPage.drawRectangle({ x: 0, y: 0, width, height, color: themeAccent });
+                  y = height - margin;
+                }
+                if (line.trim()) {
+                  currentPage.drawText(line, { x: margin, y, size: fontSize, font: fontRegular, color: themePrimary, maxWidth });
+                }
+                y -= lineHeight;
+              }
+            } catch (err) {
+              console.error('TXT export failed:', err);
+            }
+          }
+        }
+
+        // ── MD ── convert via edge function (same as DOCX)
+        else if (file.type === 'md') {
+          if (!file.rawFile) {
+            console.warn('MD file missing rawFile, skipping:', file.name);
+          } else {
+            try {
+              // Convert md to html first, then send as html file to edge function
+              const { marked } = await import('marked');
+              const text = await file.rawFile.text();
+              const html = await marked.parse(text);
+              const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:Georgia,serif;max-width:700px;margin:40px auto;padding:0 20px;line-height:1.7;color:#1c1917}h1,h2,h3{font-weight:700}code{background:#f5f5f4;padding:2px 6px;border-radius:4px;font-size:0.9em}pre{background:#f5f5f4;padding:16px;border-radius:8px;overflow:auto}blockquote{border-left:4px solid #d97706;margin:0;padding-left:16px;color:#57534e}</style></head><body>${html}</body></html>`;
+              const htmlBlob = new Blob([fullHtml], { type: 'text/html' });
+              const htmlFile = new File([htmlBlob], file.name.replace('.md', '.html'), { type: 'text/html' });
+
+              const form = new FormData();
+              form.append('file', htmlFile, htmlFile.name);
+              const anonKey = import.meta.env.PUBLIC_SUPABASE_ANON_KEY as string;
+              const res = await supabase.functions.invoke('docx-to-pdf', {
+                body: form,
+                headers: { Authorization: `Bearer ${anonKey}` },
+              });
+              if (res.error) throw new Error(res.error.message);
+
+              const pdfBuf: ArrayBuffer = res.data instanceof ArrayBuffer
+                ? res.data
+                : await (res.data as Blob).arrayBuffer();
+
+              const mdDoc = await PDFDocument.load(pdfBuf);
+              const total = mdDoc.getPageCount();
+              const indices = Array.from({ length: total }, (_, idx) => idx);
+              const pages = await mergedPdf.copyPages(mdDoc, indices);
+              pages.forEach((p) => mergedPdf.addPage(p));
+            } catch (err) {
+              console.error('MD export failed:', err);
+              alert(`Failed to convert "${file.name}".
+Error: ${err}`);
+            }
           }
         }
 
@@ -607,7 +713,7 @@
   bind:this={fileInput}
   type="file"
   multiple
-  accept=".pdf,.docx,.pptx,.xlsx,.jpg,.jpeg,.png,.webp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,image/jpeg,image/png,image/webp"
+  accept=".pdf,.docx,.pptx,.xlsx,.txt,.md,.jpg,.jpeg,.png,.webp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/markdown,image/jpeg,image/png,image/webp"
   class="hidden"
   onchange={(e) => { if (e.currentTarget.files) handleFiles(Array.from(e.currentTarget.files)); }}
 />

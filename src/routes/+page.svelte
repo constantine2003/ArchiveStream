@@ -21,8 +21,8 @@
   }
 
   const features = [
-    { icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />`, label: 'Multi-Format', desc: 'PDF, DOCX, PPTX, XLSX, and images — all merged into one clean PDF.' },
-    { icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />`, label: 'Privacy First', desc: 'PDF and image processing runs entirely in your browser. No uploads, no tracking.' },
+    { icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />`, label: 'Multi-Format', desc: 'PDF, DOCX, PPTX, XLSX, Markdown, TXT, and images — all merged into one clean PDF.' },
+    { icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />`, label: 'Privacy First', desc: 'PDF, image, and text processing runs entirely in your browser. Office files use isolated edge functions with zero retention.' },
     { icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z" />`, label: 'Edge Powered', desc: 'Office conversion via Supabase Edge Functions. Server-grade fidelity, serverless speed.' },
     { icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 3.5a.5.5 0 11-1 0 .5.5 0 011 0z" />`, label: 'QR Sharing', desc: 'Instantly share your merged PDF via QR code. Auto-shredded after 5 hours.' },
     { icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />`, label: 'Design Atelier', desc: 'Custom chapter pages with themes, ink & paper colors, and typography.' },
@@ -36,6 +36,8 @@
     { ext: 'XLSX', color: '#16a34a', darkText: '#34d399', lightText: '#16a34a' },
     { ext: 'PNG',  color: '#7c3aed', darkText: '#a78bfa', lightText: '#7c3aed' },
     { ext: 'JPG',  color: '#0891b2', darkText: '#22d3ee', lightText: '#0891b2' },
+    { ext: 'TXT',  color: '#78716c', darkText: '#a8a29e', lightText: '#78716c' },
+    { ext: 'MD',   color: '#d97706', darkText: '#fbbf24', lightText: '#d97706' },
   ];
 
   const chips = [
@@ -43,7 +45,8 @@
     { label: 'PPTX', textColor: 'text-orange-400', pos: 'top-44 right-[10%]', anim: 'animate-float-2' },
     { label: 'XLSX', textColor: 'text-emerald-400', pos: 'bottom-40 left-[12%]', anim: 'animate-float-3' },
     { label: 'PDF', textColor: 'text-red-400', pos: 'bottom-52 right-[8%]', anim: 'animate-float-1' },
-    { label: 'PNG', textColor: 'text-violet-400', pos: 'top-64 left-[20%]', anim: 'animate-float-2' },
+    { label: '.MD', textColor: 'text-amber-400', pos: 'top-64 left-[20%]', anim: 'animate-float-2' },
+    { label: 'TXT', textColor: 'text-stone-400', pos: 'top-56 right-[18%]', anim: 'animate-float-3' },
   ];
 </script>
 
@@ -52,8 +55,7 @@
   <meta name="description" content="Privacy-first PDF workstation. Merge PDFs, Word docs, PowerPoints, Excel sheets and images into one perfect PDF." />
 </svelte:head>
 
-<!-- ✅ custom-scrollbar added here -->
-<div class="min-h-screen overflow-x-hidden transition-colors duration-300 font-sans custom-scrollbar"
+<div class="min-h-screen overflow-x-hidden transition-colors duration-300 font-sans"
      style="background-color: {isDark ? '#0c0a09' : '#fafaf9'}; color: {isDark ? '#e7e5e4' : '#1c1917'};">
 
   <!-- NAV -->
@@ -101,10 +103,10 @@
          style="opacity: {isDark ? 0.04 : 0.06}; background-image: linear-gradient({isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.5)'} 1px, transparent 1px), linear-gradient(90deg, {isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.5)'} 1px, transparent 1px); background-size: 60px 60px;"></div>
 
     <!-- Amber glow -->
-    <div class="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-175 h-125 rounded-full pointer-events-none"
+    <div class="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] rounded-full pointer-events-none"
          style="opacity: {isDark ? 0.12 : 0.06}; filter: blur(120px); background: radial-gradient(ellipse, #d97706, transparent 70%);"></div>
 
-    <!-- Floating chips -->
+    <!-- Floating chips — now dark mode aware -->
     {#each chips as chip}
       <div class="absolute {chip.pos} {chip.anim}">
         <div class="px-3 py-1.5 rounded-lg border text-[10px] font-bold backdrop-blur-sm transition-colors duration-300 {chip.textColor}"
@@ -120,7 +122,7 @@
 
       <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber-600/30 bg-amber-600/10 text-amber-400 text-[10px] font-bold uppercase tracking-widest mb-10">
         <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-        Privacy-First · Serverless · Open Source
+        PDF/Image Client-Side · Office via Edge · Open Source
       </div>
 
       <h1 class="font-serif leading-[0.88] tracking-tight mb-8"
@@ -131,8 +133,8 @@
 
       <p class="text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed mb-12"
          style="color: {isDark ? '#a8a29e' : '#57534e'};">
-        Merge PDFs, Word docs, PowerPoints, Excel sheets, and images into a single perfect PDF —
-        processed in your browser, no accounts required.
+        Merge PDFs, Word docs, PowerPoints, Excel sheets, and images into a single perfect PDF.
+        PDF and image processing runs entirely in your browser — Office files are converted via isolated edge functions with no data retention.
       </p>
 
       <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -149,7 +151,7 @@
 
       <!-- Stats row -->
       <div class="flex items-center justify-center gap-8 mt-16 flex-wrap">
-        {#each [['6+', 'File Formats'], ['100%', 'Client-Side'], ['5hr', 'Auto-Shred'], ['0', 'Cost']] as [val, label]}
+        {#each [['8+', 'File Formats'], ['PDF/IMG', 'Client-Side'], ['5hr', 'Auto-Shred'], ['0', 'Cost']] as [val, label]}
           <div class="text-center">
             <div class="font-serif text-2xl text-amber-500 mb-1">{val}</div>
             <div class="text-[9px] font-bold uppercase tracking-widest" style="color: {isDark ? '#57534e' : '#a8a29e'};">{label}</div>
@@ -195,9 +197,7 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 rounded-2xl overflow-hidden border"
            style="border-color: {isDark ? 'rgba(68,64,60,0.4)' : 'rgba(214,211,209,0.6)'}; gap: 1px; background-color: {isDark ? 'rgba(68,64,60,0.3)' : 'rgba(214,211,209,0.4)'};">
         {#each features as f}
-          <!-- ✅ role="presentation" added -->
           <div class="p-8 transition-colors duration-300 group cursor-default"
-               role="presentation"
                style="background-color: {isDark ? '#0c0a09' : '#fafaf9'};"
                onmouseenter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = isDark ? '#141210' : '#f5f5f4'; }}
                onmouseleave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = isDark ? '#0c0a09' : '#fafaf9'; }}>
@@ -226,14 +226,12 @@
 
       <div class="space-y-2">
         {#each [
-          { n: '01', title: 'Drop your files', desc: 'Drag in PDFs, Word docs, PowerPoints, Excel sheets, or images in any order.' },
+          { n: '01', title: 'Drop your files', desc: 'Drag in PDFs, Word docs, PowerPoints, Excel sheets, Markdown, plain text, or images in any order.' },
           { n: '02', title: 'Organize', desc: 'Reorder files, add chapter separators, select exact page ranges per file.' },
           { n: '03', title: 'Customize', desc: 'Apply themes, watermarks, and typography to your chapter pages.' },
           { n: '04', title: 'Export', desc: 'Get a merged PDF instantly. Share via QR code — auto-shredded after 5 hours.' },
         ] as step}
-          <!-- ✅ role="presentation" added -->
           <div class="flex items-start gap-8 p-8 rounded-2xl border transition-all duration-300 cursor-default group"
-               role="presentation"
                style="border-color: transparent;"
                onmouseenter={(e) => {
                  const el = e.currentTarget as HTMLElement;
@@ -268,7 +266,7 @@
         Stop converting<br/>one file at a time.
       </h2>
       <p class="text-lg mb-12 max-w-xl mx-auto" style="color: {isDark ? '#57534e' : '#a8a29e'};">
-        ArchiveStream runs in your browser. No accounts. No limits. No nonsense.
+        PDF and image processing runs in your browser. Office conversion uses isolated edge functions with zero data retention. No accounts required.
       </p>
       <a href="/app"
          class="inline-flex items-center gap-3 px-10 py-5 bg-amber-600 hover:bg-amber-500 text-white font-bold uppercase tracking-widest rounded-full transition-all text-sm shadow-2xl shadow-amber-900/40 hover:-translate-y-0.5">
