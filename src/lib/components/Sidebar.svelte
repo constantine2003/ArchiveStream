@@ -407,7 +407,15 @@
       class="w-full py-3 rounded-xl text-[10px] uppercase tracking-widest font-bold border transition-all
              {store.isDark ? 'bg-stone-900 hover:bg-stone-800 text-stone-200 border-stone-800' : 'bg-white hover:bg-stone-50 text-stone-900 border-stone-200'}"
     >
-      Import PDF
+      Import Files
     </button>
   </div>
 </aside>
+
+
+<style>
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #44403c; border-radius: 10px; }
+</style>

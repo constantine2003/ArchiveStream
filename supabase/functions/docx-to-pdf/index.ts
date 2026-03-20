@@ -17,6 +17,8 @@ const EXT_TO_FORMAT: Record<string, string> = {
   '.docx': 'docx',
   '.pptx': 'pptx',
   '.xlsx': 'xlsx',
+  '.html': 'html',
+  '.htm':  'html',
 };
 
 // MIME types for each format
@@ -24,6 +26,8 @@ const EXT_TO_MIME: Record<string, string> = {
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.html': 'text/html',
+  '.htm':  'text/html',
 };
 
 function getExt(fileName: string, mimeType?: string): string {
@@ -35,6 +39,7 @@ function getExt(fileName: string, mimeType?: string): string {
   if (mimeType?.includes('presentationml')) return '.pptx';
   if (mimeType?.includes('spreadsheetml')) return '.xlsx';
   if (mimeType?.includes('wordprocessingml')) return '.docx';
+  if (mimeType === 'text/html') return '.html';
   return '';
 }
 

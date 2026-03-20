@@ -79,7 +79,7 @@
             </button>
           </div>
           <!-- Cover preview -->
-          <div class="shadow-2xl mx-auto w-[92%] aspect-3/4 max-h-[70vh] rounded-xl flex flex-col items-center justify-center p-12 border transition-colors duration-300"
+          <div class="shadow-2xl mx-auto w-[92%] aspect-[3/4] max-h-[70vh] rounded-xl flex flex-col items-center justify-center p-12 border transition-colors duration-300"
                style="background-color: {store.globalTheme.accentColor.hex}; border-color: {store.globalTheme.primaryColor.hex}33;">
             {#if file.coverLogoUrl}
               <img src={file.coverLogoUrl} alt="Logo" class="w-24 h-24 object-contain mb-6 rounded-xl" />
@@ -107,7 +107,7 @@
           </div>
         </section>
 
-      {:else if file.type === 'word' || file.type === 'ppt' || file.type === 'excel'}
+      {:else if file.type === 'word' || file.type === 'ppt' || file.type === 'excel' || file.type === 'txt' || file.type === 'md'}
         <section
           id={file.id ? String(file.id) : ''}
           class="group transition-all duration-300 rounded-xl overflow-hidden {store.activeFileId === String(file.id) ? (store.isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
@@ -140,7 +140,7 @@
             <span class="text-[10px] font-bold uppercase tracking-[0.2em] {store.isDark ? 'text-stone-500' : 'text-stone-400'}">{file.name}</span>
             <div class="h-px flex-1 {store.isDark ? 'bg-stone-800' : 'bg-stone-200'}"></div>
           </div>
-          {#if file.type === 'word'}
+          {#if file.type === 'word' || file.type === 'txt' || file.type === 'md'}
             <div
               class="shadow-lg mx-auto p-6 md:p-12 w-[92%] text-left word-preview-container rounded-xl transition-colors duration-300"
               style="background-color: {store.isDark ? '#1c1917' : '#ffffff'}; color: {store.isDark ? '#e7e5e4' : '#1c1917'};"
