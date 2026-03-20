@@ -1,6 +1,6 @@
 # ⚡ ARCHIVESTREAM
 
-**ArchiveStream** is a privacy-first document workstation for high-speed document sequencing and merging. It processes files entirely client-side, ensuring sensitive data never leaves your browser. Featuring a high-fidelity "Live Stream" UI, it offers secure merging, real-time previews, cloud sharing, and end-to-end encryption in one seamless workstation.
+**ArchiveStream** is a privacy-first document workstation for high-speed document sequencing and merging. PDF and image processing runs entirely client-side in your browser — no uploads, no tracking. Office files (DOCX, PPTX, XLSX) and Markdown are converted via isolated Supabase Edge Functions with zero data retention. Featuring a high-fidelity "Live Stream" UI, it offers secure merging, real-time previews, cloud sharing, and end-to-end encryption in one seamless workstation.
 
 ---
 
@@ -11,11 +11,12 @@
 * **TypeScript** – Type-safe development
 * **pdf-lib** – Client-side PDF manipulation and merging
 * **pdfjs-dist** – Client-side PDF page thumbnail rendering
+* **mammoth.js** – Word document preview parsing
+* **marked** – Markdown parsing and rendering
 * **Tailwind CSS 4** – Utility-first styling with dark mode support
 * **Supabase** – Cloud storage, database, and Edge Functions for server-side conversion
-* **mammoth.js** – Word document preview parsing
 * **qrcode** – QR code generation for sharing
-* **ConvertAPI** – Server-side Office → PDF conversion (DOCX, PPTX, XLSX) with CloudConvert fallback
+* **ConvertAPI** – Server-side Office/HTML → PDF conversion with CloudConvert fallback
 * **Web Crypto API** – Browser-native AES-256-GCM end-to-end encryption
 
 ---
@@ -27,6 +28,8 @@
 * **Word Documents (.docx)** – Server-side conversion via ConvertAPI — tables, fonts, images preserved perfectly
 * **PowerPoint (.pptx)** – Full slide deck → PDF conversion, scope/page range supported
 * **Excel (.xlsx)** – Spreadsheet → PDF, each sheet becomes a page, fit-to-width applied
+* **Markdown (.md)** – Parsed client-side, styled, and converted to PDF via edge function
+* **Plain Text (.txt)** – 100% client-side — rendered directly into PDF with pdf-lib, no API credits used
 * **Images** – JPG, PNG, WebP with multiple sizing modes:
   - Original dimensions
   - Fit to A4
@@ -43,13 +46,14 @@
 
 ### 🔐 Security & Privacy
 * **Password-Protected Export** – AES-256 PDF encryption via ConvertAPI edge function
-* **End-to-End Encryption** – Encrypt uploads with AES-256-GCM in-browser before Supabase storage; decryption key embedded in QR URL fragment — server never sees plaintext
-* **Client-Side Processing** – All PDF/image operations run entirely in your browser
+* **End-to-End Encryption** – AES-256-GCM in-browser encryption before Supabase upload; decryption key embedded in QR URL fragment only — server never sees plaintext
+* **Client-Side PDF/Image/TXT Processing** – All PDF, image, and plain text operations run entirely in your browser via pdf-lib
+* **Zero-Retention Office Conversion** – DOCX/PPTX/XLSX/MD sent to isolated edge functions, converted, and immediately discarded
 * **Auto-Shred** – Cloud copies auto-delete after 5 hours (pg_cron scheduled)
 
 ### 🔧 Document Processing
-* **Client-Side PDF Engine** – pdf-lib handles all PDF/image operations in-browser
-* **Server-Side Office Conversion** – Supabase Edge Functions + ConvertAPI (CloudConvert fallback) for DOCX/PPTX/XLSX
+* **Client-Side PDF Engine** – pdf-lib handles all PDF/image/TXT operations in-browser
+* **Server-Side Office Conversion** – Supabase Edge Functions + ConvertAPI (CloudConvert fallback) for DOCX/PPTX/XLSX/MD
 * **Page Range Selection** – Extract specific pages (e.g. "1-3, 5, 8-10") from any file type
 * **Page Reordering** – Drag individual pages within a PDF to reorder before export
 * **Cover Page Generator** – Auto-inserts themed cover page at position 0, fully draggable
@@ -132,7 +136,7 @@ supabase link --project-ref YOUR_PROJECT_REF
 supabase secrets set CONVERTAPI_SECRET=your_convertapi_secret
 supabase secrets set CLOUDCONVERT_API_KEY=your_cloudconvert_key  # fallback
 
-# Deploy office-to-pdf converter
+# Deploy office-to-pdf converter (handles DOCX, PPTX, XLSX, HTML/MD)
 supabase functions deploy docx-to-pdf --no-verify-jwt
 
 # Deploy pdf password protection
@@ -150,9 +154,9 @@ npm run preview
 
 ## 🔒 Privacy & Security
 
-* **Client-Side Processing** – PDF and image operations happen entirely in your browser
+* **Client-Side PDF/Image/TXT Processing** – All PDF merging, image, and plain text operations run entirely in your browser via pdf-lib — no server involved
+* **Zero-Retention Office Conversion** – DOCX/PPTX/XLSX/MD files are sent to isolated Supabase Edge Functions → ConvertAPI → returned as PDF and immediately discarded
 * **No Data Collection** – Files never touch external servers unless you opt-in to cloud sharing
-* **Office Conversion** – DOCX/PPTX/XLSX sent to ConvertAPI via Edge Function and immediately discarded
 * **Password Protection** – PDF encrypted server-side via ConvertAPI before download
 * **End-to-End Encryption** – AES-256-GCM encryption in-browser; key never sent to server, embedded in QR fragment only
 * **Optional Cloud Sync** – Supabase integration is opt-in and temporary (5-hour auto-delete)
@@ -191,7 +195,7 @@ src/
 supabase/
 └── functions/
     ├── docx-to-pdf/
-    │   └── index.ts                   # DOCX/PPTX/XLSX → PDF (ConvertAPI + CloudConvert fallback)
+    │   └── index.ts                   # DOCX/PPTX/XLSX/HTML → PDF (ConvertAPI + CloudConvert fallback)
     └── encrypt-pdf/
         └── index.ts                   # PDF password protection via ConvertAPI
 ```
@@ -200,7 +204,7 @@ supabase/
 
 ## 🎯 Usage
 
-1. **Import Files** – Click "Import" or drag-and-drop PDFs, Word docs, PowerPoints, Excel sheets, or images
+1. **Import Files** – Click "Import" or drag-and-drop PDFs, Word docs, PowerPoints, Excel sheets, Markdown, plain text, or images
 2. **Organize** – Drag to reorder files, reorder pages within PDFs, add chapter separators and cover pages
 3. **Customize** – Apply themes, watermarks, typography, and page numbering via Design Atelier
 4. **Export** – Set optional password, generate merged PDF with optional E2E encrypted cloud sharing and QR code
