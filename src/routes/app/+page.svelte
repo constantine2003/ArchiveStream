@@ -708,6 +708,10 @@ Error: ${err}`);
   }
 </script>
 
+<svelte:head>
+  <title>ArchiveStream — Secure Download</title>
+</svelte:head>
+
 <!-- Hidden file input -->
 <input
   bind:this={fileInput}
