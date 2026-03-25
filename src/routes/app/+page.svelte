@@ -23,7 +23,13 @@
   // ─── Password Protection ───────────────────────────────────────────────────
   let showPassword = $state(false);
   // ─── Mount ─────────────────────────────────────────────────────────────────
+  let isInAppBrowser = $state(false);
+
   onMount(() => {
+    // Detect in-app browsers (Messenger, Instagram, Facebook, TikTok etc.)
+    const ua = navigator.userAgent || '';
+    isInAppBrowser = /FBAN|FBAV|Instagram|Messenger|Line|WeChat|MicroMessenger|TikTok|Snapchat|Twitter|LinkedInApp/.test(ua);
+
     // Lock scroll for app, restore on unmount
     document.body.style.overflow = 'hidden';
 
@@ -708,10 +714,6 @@ Error: ${err}`);
   }
 </script>
 
-<svelte:head>
-  <title>ArchiveStream — Secure Download</title>
-</svelte:head>
-
 <!-- Hidden file input -->
 <input
   bind:this={fileInput}
@@ -721,6 +723,32 @@ Error: ${err}`);
   class="hidden"
   onchange={(e) => { if (e.currentTarget.files) handleFiles(Array.from(e.currentTarget.files)); }}
 />
+
+<!-- In-app browser warning -->
+{#if isInAppBrowser}
+  <div class="fixed inset-0 z-[100] flex items-center justify-center p-6"
+       style="background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);">
+    <div class="w-full max-w-sm rounded-2xl border p-8 text-center"
+         style="background-color: #0c0a09; border-color: #292524;">
+      <div class="w-12 h-12 rounded-xl bg-amber-600/20 border border-amber-600/30 flex items-center justify-center mx-auto mb-6">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+      </div>
+      <h2 class="font-serif text-lg text-white mb-2">Open in Browser</h2>
+      <p class="text-sm text-stone-400 mb-6 leading-relaxed">
+        ArchiveStream doesn't work in Messenger or other in-app browsers. Please open this link in <strong class="text-white">Chrome, Safari, or Firefox</strong> for the full experience.
+      </p>
+      <div class="flex flex-col gap-3">
+        <p class="text-[10px] text-stone-600 uppercase tracking-widest">Tap the menu (⋯) → Open in Browser</p>
+        <button onclick={() => { isInAppBrowser = false; }}
+          class="w-full py-3 rounded-xl border border-stone-800 text-stone-500 text-xs font-bold uppercase tracking-widest hover:text-stone-300 transition-colors">
+          Try Anyway
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <!-- Overlays -->
 <ExportOverlay />
