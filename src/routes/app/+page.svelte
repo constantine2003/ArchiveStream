@@ -726,7 +726,7 @@ Error: ${err}`);
 
 <!-- In-app browser warning -->
 {#if isInAppBrowser}
-  <div class="fixed inset-0 z-[100] flex items-center justify-center p-6"
+  <div class="fixed inset-0 z-100 flex items-center justify-center p-6"
        style="background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);">
     <div class="w-full max-w-sm rounded-2xl border p-8 text-center"
          style="background-color: #0c0a09; border-color: #292524;">
