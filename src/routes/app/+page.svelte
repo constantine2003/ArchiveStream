@@ -213,6 +213,9 @@
   function handleExport() {
     if (store.files.length === 0 || store.isExporting) return;
     store.exportPassword = '';
+    if (!store.exportFileName.trim()) {
+      store.exportFileName = `ArchiveStream_${new Date().toISOString().slice(0, 10)}`;
+    }
     store.showPasswordModal = true;
   }
 
@@ -636,7 +639,9 @@ Error: ${err}`);
 
       const blob = new Blob([finalBytes.buffer.slice(0) as ArrayBuffer], { type: 'application/pdf' });
       const exportUrl = URL.createObjectURL(blob);
-      const fileName = `ArchiveStream_${Date.now()}.pdf`;
+      const baseName = store.exportFileName.trim() || `ArchiveStream_${Date.now()}`;
+      const safeBase = baseName.replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/^_+|_+$/g, '');
+      const fileName = (safeBase || `ArchiveStream_${Date.now()}`) + '.pdf';
 
       const link = document.createElement('a');
       link.href = exportUrl;
