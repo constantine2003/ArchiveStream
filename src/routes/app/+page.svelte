@@ -1,6 +1,7 @@
 <script lang="ts">
   import { supabase } from '$lib/supabaseClient';
   import { onMount } from 'svelte';
+  import { browser } from '$app/environment';
   import { PDFDocument } from 'pdf-lib';
   import mammoth from 'mammoth';
 
@@ -25,6 +26,10 @@
   // ─── Mount ─────────────────────────────────────────────────────────────────
   let isInAppBrowser = $state(false);
 
+  if (browser) {
+    store.isDark = localStorage.getItem('theme') === 'dark';
+  }
+
   onMount(() => {
     // Detect in-app browsers (Messenger, Instagram, Facebook, TikTok etc.)
     const ua = navigator.userAgent || '';
@@ -32,9 +37,6 @@
 
     // Lock scroll for app, restore on unmount
     document.body.style.overflow = 'hidden';
-
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark') store.isDark = true;
 
     const savedHistory = localStorage.getItem('export_history');
     if (savedHistory) store.exportHistory = JSON.parse(savedHistory);
