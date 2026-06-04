@@ -79,7 +79,7 @@
             </button>
           </div>
           <!-- Cover preview -->
-          <div class="shadow-2xl mx-auto w-[92%] aspect-[3/4] max-h-[70vh] rounded-xl flex flex-col items-center justify-center p-12 border transition-colors duration-300"
+          <div class="shadow-2xl mx-auto w-[92%] aspect-3/4 max-h-[70vh] rounded-xl flex flex-col items-center justify-center p-12 border transition-colors duration-300"
                style="background-color: {store.globalTheme.accentColor.hex}; border-color: {store.globalTheme.primaryColor.hex}33;">
             {#if file.coverLogoUrl}
               <img src={file.coverLogoUrl} alt="Logo" class="w-24 h-24 object-contain mb-6 rounded-xl" />
@@ -298,16 +298,85 @@
         ondragstart={() => (store.draggedIndex = i)}
         ondragover={(e) => { e.preventDefault(); store.dragOverIndex = i; }}
         ondrop={() => handleDrop(i)}
-        class="group relative aspect-3/4 rounded-2xl border-2 transition-all duration-300 cursor-grab active:cursor-grabbing flex flex-col items-center justify-center p-4 text-center
-               {store.draggedIndex === i ? 'opacity-20 scale-95' : 'opacity-100'}
-               {store.dragOverIndex === i ? 'border-amber-500 bg-amber-500/5' : store.isDark ? 'border-stone-800 bg-stone-900/40 hover:border-stone-600' : 'border-stone-200 bg-white shadow-sm hover:border-amber-500'}"
+         class="group relative aspect-3/4 rounded-2xl border-2 transition-all duration-300 cursor-grab active:cursor-grabbing flex flex-col items-stretch justify-between p-4 text-center
+           {store.draggedIndex === i ? 'opacity-20 scale-95' : 'opacity-100'}
+           {store.dragOverIndex === i ? 'border-amber-500 bg-amber-500/5' : store.isDark ? 'border-stone-800 bg-stone-900/40 hover:border-stone-600' : 'border-stone-200 bg-white shadow-sm hover:border-amber-500'}
+           {store.activeFileId === String(file.id) ? (store.isDark ? 'ring-2 ring-amber-500' : 'ring-2 ring-amber-400') : ''}"
       >
         <div class="absolute top-3 left-3 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold
                     {store.isDark ? 'bg-stone-800 text-stone-400' : 'bg-stone-100 text-stone-500'}">{i + 1}</div>
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12 mb-4 {store.isDark ? 'text-stone-700' : 'text-stone-200'}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
-        <p class="text-[10px] font-bold uppercase tracking-widest leading-tight px-2 line-clamp-2
+        <div class="w-full flex-1 rounded-xl overflow-hidden border shadow-sm
+                    {store.isDark ? 'border-stone-800 bg-stone-950' : 'border-stone-200 bg-white'}">
+          {#if file.type === 'image'}
+            <img src={file.url} alt={file.name} class="w-full h-full object-contain" />
+          {:else if file.type === 'pdf'}
+            <iframe src={file.url} title={file.name} class="w-full h-full pointer-events-none"></iframe>
+          {:else if file.type === 'word' || file.type === 'txt' || file.type === 'md'}
+            <div class="w-full h-full overflow-hidden {store.isDark ? 'bg-stone-900 text-stone-200' : 'bg-white text-stone-800'}">
+              <div class="origin-top-left scale-[0.62] w-[160%] h-[160%] p-3 word-preview-container">
+                {@html file.previewHtml}
+              </div>
+            </div>
+          {:else if file.type === 'cover'}
+            <div class="w-full h-full flex flex-col items-center justify-center p-4"
+                 style="background-color: {store.globalTheme.accentColor.hex}; color: {store.globalTheme.primaryColor.hex};">
+              {#if file.coverLogoUrl}
+                <img src={file.coverLogoUrl} alt="Logo" class="w-10 h-10 object-contain mb-3 rounded-lg" />
+              {/if}
+              <div class="w-8 h-px mb-3 opacity-30" style="background-color: {store.globalTheme.primaryColor.hex};"></div>
+              {#if file.coverTitle}
+                <p class="text-[11px] font-bold leading-tight text-center mb-1"
+                   style="font-family: {getCssFontFamily(store.globalTheme.fontFamily)}; font-weight: {getCssFontWeight(store.globalTheme.fontFamily)};">
+                  {file.coverTitle}
+                </p>
+              {/if}
+              {#if file.coverSubtitle}
+                <p class="text-[9px] opacity-70 text-center"
+                   style="font-family: {getCssFontFamily(store.globalTheme.fontFamily)};">
+                  {file.coverSubtitle}
+                </p>
+              {/if}
+            </div>
+          {:else if file.type === 'chapter'}
+            <div class="w-full h-full flex flex-col items-center justify-center p-4"
+                 style="background-color: {store.globalTheme.accentColor.hex}; color: {store.globalTheme.primaryColor.hex};">
+              <span class="text-[8px] font-black uppercase tracking-[0.3em] opacity-70 mb-3">Section</span>
+              {#if file.title}
+                <p class="text-[12px] font-bold text-center leading-tight"
+                   style="font-family: {getCssFontFamily(store.globalTheme.fontFamily)}; font-weight: {getCssFontWeight(store.globalTheme.fontFamily)};">
+                  {file.title}
+                </p>
+              {/if}
+              {#if file.description}
+                <p class="text-[9px] opacity-70 text-center mt-2"
+                   style="font-family: {getCssFontFamily(store.globalTheme.fontFamily)};">
+                  {file.description}
+                </p>
+              {/if}
+            </div>
+          {:else}
+            <div class="w-full h-full flex flex-col items-center justify-center gap-3
+                        {store.isDark ? 'bg-stone-900/40' : 'bg-stone-50'}">
+              {#if file.type === 'ppt'}
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 12h10M7 8h6m-6 8h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z" />
+                </svg>
+                <p class="text-[9px] font-bold uppercase tracking-widest text-orange-400">PowerPoint</p>
+              {:else if file.type === 'excel'}
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 10h18M3 6h18M3 14h18M3 18h18M9 3v18M15 3v18" />
+                </svg>
+                <p class="text-[9px] font-bold uppercase tracking-widest text-emerald-400">Excel</p>
+              {:else}
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 {store.isDark ? 'text-stone-700' : 'text-stone-200'}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p class="text-[9px] font-bold uppercase tracking-widest {store.isDark ? 'text-stone-500' : 'text-stone-400'}">File</p>
+              {/if}
+            </div>
+          {/if}
+        </div>
+        <p class="mt-3 text-[10px] font-bold uppercase tracking-widest leading-tight px-2 line-clamp-2 w-full min-w-0 break-all overflow-hidden
                   {store.isDark ? 'text-stone-400 group-hover:text-stone-200' : 'text-stone-600 group-hover:text-black'}">{file.name}</p>
         <button aria-label="Remove file"
           onclick={(e) => { e.stopPropagation(); removeFile(typeof file.id === 'number' ? file.id : undefined, i); }}

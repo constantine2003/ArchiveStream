@@ -1,15 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { browser } from '$app/environment';
 
   let mounted = $state(false);
   let scrollY = $state(0);
-  let isDark = $state(true);
+  let isDark = $state(browser ? localStorage.getItem('theme') !== 'light' : true);
 
   onMount(() => {
     mounted = true;
     document.body.style.overflow = '';
     document.documentElement.style.overflow = '';
-    isDark = localStorage.getItem('theme') !== 'light';
     const onScroll = () => (scrollY = window.scrollY);
     window.addEventListener('scroll', onScroll);
     return () => window.removeEventListener('scroll', onScroll);
@@ -102,7 +102,7 @@
          style="opacity: {isDark ? 0.04 : 0.06}; background-image: linear-gradient({isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.5)'} 1px, transparent 1px), linear-gradient(90deg, {isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.5)'} 1px, transparent 1px); background-size: 60px 60px;"></div>
 
     <!-- Amber glow -->
-    <div class="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] rounded-full pointer-events-none"
+    <div class="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-175 h-125 rounded-full pointer-events-none"
          style="opacity: {isDark ? 0.12 : 0.06}; filter: blur(120px); background: radial-gradient(ellipse, #d97706, transparent 70%);"></div>
 
     <!-- Floating chips — now dark mode aware -->
@@ -197,6 +197,7 @@
            style="border-color: {isDark ? 'rgba(68,64,60,0.4)' : 'rgba(214,211,209,0.6)'}; gap: 1px; background-color: {isDark ? 'rgba(68,64,60,0.3)' : 'rgba(214,211,209,0.4)'};">
         {#each features as f}
           <div class="p-8 transition-colors duration-300 group cursor-default"
+            role="group"
                style="background-color: {isDark ? '#0c0a09' : '#fafaf9'};"
                onmouseenter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = isDark ? '#141210' : '#f5f5f4'; }}
                onmouseleave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = isDark ? '#0c0a09' : '#fafaf9'; }}>
@@ -230,9 +231,10 @@
           { n: '03', title: 'Customize', desc: 'Apply themes, watermarks, and typography to your chapter pages.' },
           { n: '04', title: 'Export', desc: 'Get a merged PDF instantly. Share via QR code — auto-shredded after 5 hours.' },
         ] as step}
-          <div class="flex items-start gap-8 p-8 rounded-2xl border transition-all duration-300 cursor-default group"
-               style="border-color: transparent;"
-               onmouseenter={(e) => {
+           <div class="flex items-start gap-8 p-8 rounded-2xl border transition-all duration-300 cursor-default group"
+             role="group"
+             style="border-color: transparent;"
+             onmouseenter={(e) => {
                  const el = e.currentTarget as HTMLElement;
                  el.style.borderColor = isDark ? 'rgba(68,64,60,0.5)' : 'rgba(214,211,209,0.8)';
                  el.style.backgroundColor = isDark ? 'rgba(28,25,23,0.4)' : 'rgba(245,245,244,0.8)';
