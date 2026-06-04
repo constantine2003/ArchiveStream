@@ -20,6 +20,7 @@ class ArchiveState {
   showSuccess = $state(false);
   showPasswordModal = $state(false);
   exportPassword = $state('');
+  exportFileName = $state('');
   showCoverEditor = $state(false);
   e2eEncrypt = $state(false);
   pageReorderFile = $state<string | null>(null); // file id being reordered
